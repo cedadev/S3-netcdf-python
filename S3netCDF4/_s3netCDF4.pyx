@@ -2,7 +2,7 @@
 S3 enabled version of netCDF4.
 Allows reading and writing of netCDF files to object stores via AWS S3.
 
-Requirements: minio, psutil, netCDF4
+Requirements: minio, psutil, netCDF4, Cython
 
 Author: Neil Massey
 Date:   10/07/2017
