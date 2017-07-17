@@ -1,0 +1,22 @@
+{
+	"version": "8",
+	"hosts": {
+		"minio": {
+		    "alias": "s3://minio",
+			"url": "130.246.130.8:9000",
+			"accessKey": "WTL17W3P2K3C7IYVX4W9",
+			"secretKey": "VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+			"api": "S3v4"
+		},
+		"vagrant": {
+		    "alias": "s3://vagrant",
+			"url": "http://192.168.51.30:9000",
+			"accessKey": "WTL17W3P2K3C7IYVX4W9",
+			"secretKey": "VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+			"api": "S3v4"
+		}
+	},
+	"cache_location": "/Users/dhk63261/cache",
+	"max_cache_size": 134217728,
+	"max_file_size_for_memory": 134217728
+}
