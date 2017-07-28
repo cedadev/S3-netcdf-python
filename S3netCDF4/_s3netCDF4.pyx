@@ -20,8 +20,8 @@ import os
 _s3_private_atts = [\
  # member variables
  's3_user_config', 's3_client',
- 'host_name', 'object_name', 'bucket_name',
- 'stream_to_cache', 'delete_from_cache', 'cache_filename'
+ 's3_host_name', 's3_object_name', 's3_bucket_name',
+ 's3_stream_to_cache', 's3_delete_from_cache', 's3_cache_filename'
 ]
 netCDF4._private_atts.extend(_s3_private_atts)
 
@@ -48,47 +48,47 @@ class s3Dataset(netCDF4.Dataset, object):
             # First load in the configuration for the S3 server(s)
             self.s3_user_config = s3_read_user_config()
             # get the url, bucket and object from the endpoint
-            self.host_name, self.bucket_name, self.object_name = s3_map_endpoint_to_host_bucket_object(filename, self.s3_user_config)
+            self.s3_host_name, self.s3_bucket_name, self.s3_object_name = s3_map_endpoint_to_host_bucket_object(filename, self.s3_user_config)
 
             # full url for error messages
-            alias = self.s3_user_config["hosts"][self.host_name]["alias"]
-            full_url = alias + "/" + self.bucket_name + "/" + self.object_name
+            alias = self.s3_user_config["hosts"][self.s3_host_name]["alias"]
+            full_url = alias + "/" + self.s3_bucket_name + "/" + self.s3_object_name
             # create the client
-            self.s3_client = s3_create_client(self.host_name, self.s3_user_config)
+            self.s3_client = s3_create_client(self.s3_host_name, self.s3_user_config)
             # Switch on file mode, read, write or append.  Unbuffered sharing is not permitted
             if mode == 'r':             # read
                 # Check whether the object exists
                 try:
-                    object_stats = self.s3_client.stat_object(self.bucket_name, self.object_name)
+                    object_stats = self.s3_client.stat_object(self.s3_bucket_name, self.s3_object_name)
                 except BaseException:
                     raise s3IOException("Error: " + full_url + " not found.")
 
                 # check whether this object is a netCDF file
-                file_type, file_version = s3_get_netCDF_filetype(self.host_name, self.bucket_name, self.object_name,
+                file_type, file_version = s3_get_netCDF_filetype(self.s3_host_name, self.s3_bucket_name, self.s3_object_name,
                                                                  self.s3_client, self.s3_user_config)
                 if file_type == "NOT_NETCDF" or file_version == 0:
                     raise s3IOException("Error: " + full_url + " is not a netCDF file.")
 
                 # store whether we should always stream to file
-                self.stream_to_cache = stream_to_cache
-                self.delete_from_cache = delete_from_cache
+                self.s3_stream_to_cache = stream_to_cache
+                self.s3_delete_from_cache = delete_from_cache
                 # check whether we should stream this object
-                if s3_should_stream_to_cache(self.host_name, self.bucket_name, self.object_name,
-                                             self.s3_client, self.s3_user_config, self.stream_to_cache):
+                if s3_should_stream_to_cache(self.s3_host_name, self.s3_bucket_name, self.s3_object_name,
+                                             self.s3_client, self.s3_user_config, self.s3_stream_to_cache):
                     # stream the file to the cache
-                    self.cache_filename = s3_stream_to_cache(self.host_name, self.bucket_name, self.object_name,
-                                                             self.s3_client, self.s3_user_config)
+                    self.s3_cache_filename = s3_stream_to_cache(self.s3_host_name, self.s3_bucket_name, self.s3_object_name,
+                                                                self.s3_client, self.s3_user_config)
                     # create the netCDF4 dataset with the cached file
-                    netCDF4.Dataset.__init__(self, self.cache_filename, mode=mode, clobber=clobber, format=format,
+                    netCDF4.Dataset.__init__(self, self.s3_cache_filename, mode=mode, clobber=clobber, format=format,
                                              diskless=diskless, persist=persist, keepweakref=keepweakref, memory=None,
                                              **kwargs)
                 else:
                     # set the cache filename to the empty string
-                    self.cache_filename = ""
+                    self.s3_cache_filename = ""
                     # the netCDF library needs the filepath even for files created from memory
                     filepath = self.s3_user_config["cache_location"]
                     # get the data from the object
-                    data_from_object = s3_stream_to_memory(self.host_name, self.bucket_name, self.object_name,
+                    data_from_object = s3_stream_to_memory(self.s3_host_name, self.s3_bucket_name, self.s3_object_name,
                                                            self.s3_client, self.s3_user_config)
                     # create a temporary file in the cache location with the same filetype
                     temp_file_name = filepath + "/" + file_type + "_dummy.nc"
@@ -101,10 +101,10 @@ class s3Dataset(netCDF4.Dataset, object):
                                              **kwargs)
 
             elif mode == 'w':           # write
-                pass
+                raise NotImplementedError
 
             elif mode == 'a' or mode == 'r+':   # append
-                pass
+                raise NotImplementedError
 
             else:
                 # no other modes are supported
@@ -115,16 +115,24 @@ class s3Dataset(netCDF4.Dataset, object):
                                      persist, keepweakref, memory, **kwargs)
 
 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Allows objects to be used with a `with` statement."""
+        self.close()
+
+
     def close(self):
         """
-        Destructor - close the s3 object and client and call the netCDF4.Dataset destructor
+        Close the S3 file
         """
+        # close the netCDF4 file first
+        netCDF4.Dataset.close(self)
+
         # delete the file from the cache if necessary
-        if self.cache_filename != "" and self.delete_from_cache:
+        if self.s3_cache_filename != "" and self.s3_delete_from_cache:
             # delete the file
-            os.remove(self.cache_filename)
+            os.remove(self.s3_cache_filename)
             # check whether the directory is empty and remove it if it is
-            dest_dir = os.path.dirname(self.cache_filename)
+            dest_dir = os.path.dirname(self.s3_cache_filename)
             # this recursively cleans up the directories
             while dest_dir:
                 if not os.listdir(dest_dir):

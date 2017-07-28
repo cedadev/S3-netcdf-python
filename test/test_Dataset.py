@@ -32,10 +32,10 @@ def test_open_dataset():
     print end - start
     s3_data.close() # this is necessary to delete from the cache
 
-    s3_nc4_data = Dataset(S3_NC4_DATASET_PATH, mode='r')
-    print s3_nc4_data
-    s3_nc4_data.close()
-    not_nc_data = Dataset(S3_NOT_NETCDF_PATH)
+    #s3_nc4_data = Dataset(S3_NC4_DATASET_PATH, mode='r')
+    #print s3_nc4_data
+    #s3_nc4_data.close()
+    #not_nc_data = Dataset(S3_NOT_NETCDF_PATH)
 
 if __name__ == "__main__":
     test_open_dataset()

@@ -1,0 +1,22 @@
+{
+	"version": "8",
+	"hosts": {
+		"{{ hostname0 }}": {
+		    "alias": "{{ host0_alias }}",
+			"url": "{{ host0_url }}",
+			"accessKey": "{{ host0_access_key }}",
+			"secretKey": "{{ host0_secret_key }}",
+			"api": "S3v4"
+		},
+		"{{ hostname1 }}": {
+		    "alias": "{{ host1_alias }}",
+			"url": "{{ host1_url }}",
+			"accessKey": "{{ host1_access_key }}",
+			"secretKey": "{{ host1_secret_key }}",
+			"api": "S3v4"
+		}
+	},
+	"cache_location": "{{ user_cache_location }}",
+	"max_cache_size": "{{ user_cache_size }}",
+	"max_file_size_for_memory": "{{ user_max_file_size_for_memory }}"
+}
