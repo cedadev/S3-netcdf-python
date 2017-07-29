@@ -4,4 +4,4 @@
 import pyximport
 pyximport.install()
 
-from ._S3netCDF4 import *
+from ._s3netCDF4 import *
