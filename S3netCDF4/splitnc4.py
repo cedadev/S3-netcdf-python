@@ -17,12 +17,12 @@ The splitting strategy is as follows:
 """
 
 import argparse
-import math
 import operator
 import os
 from netCDF4 import Dataset
-from copy import copy
+import numpy
 import sys
+import json
 
 
 def num_vals(shape):
@@ -125,17 +125,17 @@ def get_field_operations(c_subfield_shape, axis_types):
 
 def subdivide_field(var_shape, c_subfield_shape, axis_types, permitted_axes=["T"]):
     # calculate the number of elements per sub for the linear axis types
-    n_per_subf = []
+    n_per_subf = numpy.zeros((len(var_shape),),'i')
     for i in range(0, len(var_shape)):
         if axis_types[i] not in permitted_axes:
-            n_per_subf.append(int(1e6))
+            n_per_subf[i] = int(1e6)
         # check that we are not going to subdivide more than the axis length!
         elif c_subfield_shape[i] >= var_shape[i]:
-            n_per_subf.append(int(1e6))
+            n_per_subf[i] = int(1e6)
         else:
-            n_per_subf.append(c_subfield_shape[i])
+            n_per_subf[i] = c_subfield_shape[i]
     # get the minimum index
-    min_i = n_per_subf.index(min(n_per_subf))
+    min_i = numpy.argmin(n_per_subf)
     c_subfield_shape[min_i] += 1
     return c_subfield_shape
 
@@ -149,7 +149,7 @@ def calculate_subfield_shape(nc4_ds, var_name, max_field_size):
         var_name       -- name of variable
         max_field_size -- desired maximum number of values in a field
 
-        Returns integer field lengths of a field shape that provides balanced access of
+        Returns floating point field lengths of a field shape that provides balanced access of
         1D subsets and 2D subsets of a netCDF or HDF5 variable var with any shape.
         'Good shape' for fields means that the number of fields accessed to read either
         kind of 1D or 2D subset is approximately equal, and the size of each field
@@ -180,20 +180,26 @@ def calculate_subfield_shape(nc4_ds, var_name, max_field_size):
         var = nc4_ds.variables[var_name]
         # get the axis_types
         axis_types = get_axis_types(nc4_ds, var_name)
-        # current subfield shape defaults to var shape
-        c_subfield_shape = [1 for x in range(0, len(var.shape))]
+        # the algorithm first calculates how many partitions each dimension should be split into
+        # this is stored in c_subfield_divs
+        # current subfield_repeats shape defaults to var shape
+        c_subfield_divs = numpy.ones((len(var.shape),), 'i')
         # if the number of values in the field_shape is greater than max_field_size then divide
-        while (num_vals(var.shape) / num_vals(c_subfield_shape)) > max_field_size:
+        while (num_vals(var.shape) / num_vals(c_subfield_divs)) > max_field_size:
             # get the linear access and the field access operations
-            linear_ops = get_linear_operations(c_subfield_shape, axis_types)
-            field_ops = get_field_operations(c_subfield_shape, axis_types)
+            linear_ops = get_linear_operations(c_subfield_divs, axis_types)
+            field_ops = get_field_operations(c_subfield_divs, axis_types)
             # choose to divide on field ops first, if the number of ops are equal
             if field_ops <= linear_ops:
-                c_subfield_shape = subdivide_field(var.shape, c_subfield_shape, axis_types, ["X", "Y"])
+                c_subfield_divs = subdivide_field(var.shape, c_subfield_divs, axis_types, ["X", "Y"])
             else:
-                c_subfield_shape = subdivide_field(var.shape, c_subfield_shape, axis_types, ["T", "Z", "N"])
+                c_subfield_divs = subdivide_field(var.shape, c_subfield_divs, axis_types, ["T", "Z", "N"])
 
-        return c_subfield_shape
+        # we have so far calculated the optimum number of times each axis will be divided
+        # translate this into a (floating point) number of elements in each chunk, for each axis
+        c_subfield_shape = numpy.array(var.shape, 'f') / c_subfield_divs
+
+        return c_subfield_divs, c_subfield_shape
 
 
 def calculate_index_from_indices(indices, subfield_shape):
@@ -211,38 +217,45 @@ def calculate_index_from_indices(indices, subfield_shape):
 
 
 def calculate_indices_from_index(index, subfield_shape):
-    indices = []
+    indices = numpy.zeros((len(subfield_shape),),'i')
     field_size = 1
     for i in range(1, len(subfield_shape)):
         field_size *= subfield_shape[i]
     for i in range(0, len(subfield_shape)):
         v = index / field_size
-        indices.append(v)
-        index -= v * field_size
+        indices[i] = v
         if i < len(subfield_shape) - 1:
             field_size /= subfield_shape[i+1]
 
     return indices
 
 
-def build_list_of_indices(nsf, subfield_shape):
+def build_list_of_indices(nsf, var_shape, subfield_shape):
 
-    all_subfields = []
+    # we need two set of subfields - the start and the end, in order to subset the fields correctly, due to
+    # the possibility of a half a grid box being cast to 0
+    all_subfields = numpy.zeros((nsf, 2, len(subfield_shape),),'i')
+    all_indices = numpy.zeros((nsf, len(subfield_shape),),'i')
     # create the current subfield and set it to zero
-    c_subfield = []
-    for c in range(0, len(subfield_shape)):
-        c_subfield.append(0)
+    c_subfield = numpy.zeros((len(subfield_shape),),'f')
+    # create the current index
+    c_index = numpy.zeros((len(subfield_shape),), 'f')
 
     # iterate through all the subfields
     for s in range(0, nsf):
-        all_subfields.append(copy(c_subfield))
-        c_subfield[-1] += 1
+        all_subfields[s,0,:] = c_subfield[:]
+        all_subfields[s,1,:] = c_subfield[:] + subfield_shape[:]
+        all_indices[s,:] = c_index[:]
+        c_subfield[-1] += subfield_shape[-1]
+        c_index[-1] += 1
         for i in range(len(subfield_shape)-1, -1, -1):
-            if c_subfield[i] >= subfield_shape[i]:
+            if c_subfield[i] >= var_shape[i]:
                 c_subfield[i] = 0
-                c_subfield[i-1] += 1
+                c_subfield[i-1] += subfield_shape[i-1]
+                c_index[i] = 0
+                c_index[i-1] += 1
 
-    return all_subfields
+    return all_subfields.astype('i'), all_indices
 
 
 def create_sub_file(sub_path, in_nc4_ds, var_info):
@@ -278,15 +291,10 @@ def create_sub_file(sub_path, in_nc4_ds, var_info):
         grid_map_var_name = ""
 
     # get the number of subfiles needed - the number of values / the number of values in a subfield
-    n_subfiles = num_vals(var_info[2])
+    n_subfiles = int(num_vals(var_info[1]) / num_vals(var_info[2]))
 
     # build a list of subfile indices into the field
-    indices = build_list_of_indices(n_subfiles, var_info[2])
-
-    # calculate the number of indices in each dimension of the slices
-    slice_scale = []
-    for i in range(0, len(var_info[2])):
-        slice_scale.append(float(var_info[1][i])/var_info[2][i])
+    subfield_indices, partition_indices = build_list_of_indices(n_subfiles, var_info[1], var_info[2])
 
     # get the dimensions and their data
     in_dims = []
@@ -303,35 +311,46 @@ def create_sub_file(sub_path, in_nc4_ds, var_info):
         in_dim_data = in_dim_var[:]
         in_dims.append((in_dim.name, in_dim_var.dtype, in_dim_var_atts, in_dim_data))
 
+    # create the metadata required for the CFA file
+    cfa_meta_data = {}
+    cfa_meta_data["pmdimensions"] = [in_dims[d][0] for d in range(0, len(in_dims))]
+    cfa_meta_data["pmshape"] = var_info[3].tolist()
+    cfa_meta_data["base"] = os.path.dirname(sub_path)
+    cfa_meta_data["Partitions"] = []
+
     # loop over all the subfiles
     for sf in range(0, n_subfiles):
         # create the output netCDF4 file
         # always create as a netCDF4 file, upgrading all other (netCDF3, etc.) file types to the latest file type
-        out_fname = sub_path + "_[" + str(sf) + "]" + ".nc"
-        out_nc4_ds = Dataset(out_fname, 'w', clobber=True)
+        out_fname = sub_path + "_[" + str(sf) + "].nc"
+        out_nc4_ds = Dataset(out_fname, 'w', clobber=True, format="NETCDF4")
 
         # copy the global metadata
         out_nc4_ds.setncatts(in_glob_atts)
 
         # calculate the slice, for both the start and end slice
-        vslice = []
+        in_range = []
         in_slice = []
+
         for i in range(0, len(var_info[2])):
-            ss = int(indices[sf][i]*slice_scale[i])
-            es = int(ss + slice_scale[i])
+            ss = int(subfield_indices[sf,0,i])
+            es = int(subfield_indices[sf,1,i])
+            # check for es > shape
+            if es >= var_info[1][i]:
+                es = int(var_info[1][i])
             in_slice.append(slice(ss,es))
-            vslice.append((ss, es))
+            in_range.append((ss, es))
 
         # copy the variables dimensions, however the sizes have changed to match the subfield sizes
         for d in range(0, len(in_dims)):
             # create the dimension
-            out_dim = out_nc4_ds.createDimension(in_dims[d][0], vslice[d][1] - vslice[d][0])
+            out_dim = out_nc4_ds.createDimension(in_dims[d][0], in_range[d][1] - in_range[d][0])
             # create the dimension variable
-            out_dim_var = out_nc4_ds.createVariable(in_dims[d][0], in_dims[d][1], (in_dims[d][0],),)
+            out_dim_var = out_nc4_ds.createVariable(in_dims[d][0], in_dims[d][1], (in_dims[d][0],))
             # copy the dimension variable metadata
             out_dim_var.setncatts(in_dims[d][2])
             # copy the dimension variable data
-            out_dim_var[:] = in_dims[d][3][vslice[d][0]:vslice[d][1]]
+            out_dim_var[:] = in_dims[d][3][in_range[d][0]:in_range[d][1]]
 
         # need to cope with rotated grid
         if grid_map_var_name != "":
@@ -345,48 +364,103 @@ def create_sub_file(sub_path, in_nc4_ds, var_info):
 
         # now copy the data - we need a subset, using the start and end slice
         out_nc4_var[:] = in_nc4_var[in_slice]
+        out_shape = out_nc4_var.shape
 
         # close file to finish write
         out_nc4_ds.close()
 
+        # add the meta_data for the Partition
+        partition_md = {"index" : partition_indices[sf].tolist(),
+                        "location" : subfield_indices[sf,0].tolist(),
+                        "subarray" : {"format" : "netCDF",
+                                      "shape" : out_shape,
+                                      "file" : os.path.basename(out_fname),
+                                      "ncvar" : in_nc4_var.name}}
+        cfa_meta_data["Partitions"].append(partition_md)
+
+    return json.dumps(cfa_meta_data)
+
 
 def split_nc4_file(input_file, field_size):
-    """Split the netCDF file into smaller subarray files"""
+    """Split the netCDF file into smaller subarray files, creating a CFA file to hold the master array"""
     # open the netCDF4 Dataset
-    nc4_ds = Dataset(input_file)
-
-    # first get a list of the variables, and a separate list of the dimension variables, and their sizes
-    # for the variables, calculate an optimum field shape
-    var_list = []
-    dim_list = []
-    for var in nc4_ds.variables:
-        # add to the var list or dim list
-        var_shape = nc4_ds.variables[var].shape
-        if var in nc4_ds.dimensions or len(var_shape) == 0:
-            dim_list.append((var, var_shape))
-        else:
-            # calculate field shape if this is a variable
-            subfield_shape = calculate_subfield_shape(nc4_ds, var, field_size)
-            # [0] - variable name
-            # [1] - variable shape
-            # [2] - (desired) subfield shape
-            var_list.append((var, var_shape, subfield_shape))
+    in_nc4_ds = Dataset(input_file)
 
     # create the directory to store the subsets in
     sub_dir = input_file[:-3]
     sub_prefix = os.path.basename(sub_dir)
     if not os.path.isdir(sub_dir):
         os.makedirs(sub_dir)
-    # create the subset files
-    for v in var_list:
-        # create the sub_path for this variable
-        sub_path = sub_dir + "/" + sub_prefix + "_" + v[0]
-        if v == "field8":
-            sys.exit()
-        create_sub_file(sub_path, nc4_ds, v)
 
-    # close the dataset
-    nc4_ds.close()
+    # create the CFA-netCDF file to store the dimensions and metadata in
+    output_file = input_file[:-3] + ".nca"
+    out_cfa_ds = Dataset(output_file, 'w')
+
+    # copy the global metadata
+    in_nc4_atts = {}
+    for a in in_nc4_ds.ncattrs():
+        in_nc4_atts[a] = in_nc4_ds.getncattr(a)
+    # add to the conventions
+    if "Conventions" in in_nc4_atts:
+        in_nc4_atts["Conventions"] += " CFA-0.3"
+    else:
+        in_nc4_atts["Conventions"] = "CF-1.3 CFA-0.3"
+
+    out_cfa_ds.setncatts(in_nc4_atts)
+
+    # copy the dimensions
+    for d in in_nc4_ds.dimensions:
+        # copy the dimension
+        in_dim = in_nc4_ds.dimensions[d]
+        out_dim = out_cfa_ds.createDimension(in_dim.name, in_dim.size)
+
+        # copy the dimension variable
+        in_dim_var = in_nc4_ds.variables[in_dim.name]
+        out_dim_var = out_cfa_ds.createVariable(in_dim.name, in_dim_var.dtype, (in_dim.name,))
+        out_dim_var[:] = in_dim_var[:]
+
+        # copy the dimension variable metadata
+        in_var_atts = {}
+        for a in in_dim_var.ncattrs():
+            in_nc4_atts[a] = in_dim_var.getncattr(a)
+        out_dim_var.setncatts(in_nc4_atts)
+
+    # loop over all the groups in the file
+    # loop over all the variables in the file
+    for in_var in in_nc4_ds.variables:
+        # get the variable
+        in_nc4_var = in_nc4_ds.variables[in_var]
+        # add to the var list or dim list
+        in_var_shape = in_nc4_var.shape
+        if not(in_var in in_nc4_ds.dimensions or len(in_var_shape) == 0):
+            # calculate field shape if this is a variable
+            subfield_divs, subfield_shape = calculate_subfield_shape(in_nc4_ds, in_var, field_size)
+            v = [in_var, in_var_shape, subfield_shape, subfield_divs]
+            # create the sub_path for this variable
+            sub_path = sub_dir + "/" + sub_prefix + "_" + v[0]
+            cfa_meta_data = create_sub_file(sub_path, in_nc4_ds, v)
+
+            # create the cfa variable
+            out_var = out_cfa_ds.createVariable(in_var, in_nc4_var.dtype, in_nc4_var.dimensions)
+
+            # copy the variable attributes and add the cfa attributes
+            in_var_atts = {}
+            for a in in_nc4_var.ncattrs():
+                in_var_atts[a] = in_nc4_var.getncattr(a)
+            # add the cf-role
+            in_var_atts["cf_role"] = "cfa_variable"
+            # add the dimensions
+            in_var_atts["cf_dimensions"] = [in_nc4_var.dimensions[d][0] for d in range(0, len(in_nc4_var.dimensions))]
+            # add the cf meta data
+            in_var_atts["cfa_array"] = cfa_meta_data
+            # set the attributes
+            out_var.setncatts(in_var_atts)
+
+            # close the input dataset
+    in_nc4_ds.close()
+
+    # close the output dataset
+    out_cfa_ds.close()
 
 
 if __name__ == "__main__":
