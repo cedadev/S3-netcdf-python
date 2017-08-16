@@ -24,7 +24,8 @@ NC4_CFA_PATH = "s3://minio/cru-ts-3.24.01/data/tmp/cru_ts3.24.01.1901.1910.tmp.d
 S3_NC4_DATASET_PATH = "s3://minio/cru-ts-3.24.01/data/tmp/bbb0-cru_ts3.24.01.2011.2015.tmp.dat.nca/cru_ts3.24.01.2011.2015.tmp.dat_20110116.nc"
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_DATASET_PATH = "s3://minio/test-bucket/test/test/test/test_data.nc"
-
+WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nc"
+WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nc"
 
 def test_open_dataset():
     nc_data = Dataset(NC_DATASET_PATH)
@@ -90,6 +91,29 @@ def test_write_dataset():
     s3_data.close()
 
 
+def test_write_cfa():
+    # load a netCDF4 file and write a CFA file
+    src = Dataset(WAH_NC4_DATASET_PATH)
+    dst = Dataset(WAH_S3_DATASET_PATH, "w", format="CFA4")
+    # copy global attributes
+    for name in src.ncattrs():
+        dst.setncattr(name, src.getncattr(name))
+    # copy dimensions
+    for name, dimension in src.dimensions.iteritems():
+        dst.createDimension(name, (None if dimension.isunlimited() else len(dimension)))
+
+    # copy the variables, attributes etc.
+    # copy all file data
+    for name, variable in src.variables.iteritems():
+        var = dst.createVariable(name, variable.datatype, variable.dimensions)
+        d = {k: src.variables[name].getncattr(k) for k in src.variables[name].ncattrs()}
+        var.setncatts(d)
+        var[:] = src.variables[name][:]
+    dst.close()
+    src.close()
+
+
 if __name__ == "__main__":
     #test_write_dataset()
-    test_open_dataset()
+    #test_open_dataset()
+    test_write_cfa()

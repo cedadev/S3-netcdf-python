@@ -249,11 +249,6 @@ class s3Client(object):
     def create_bucket(self):
         """
            Create a bucket on S3 storage
-            :param host_name:
-            :param bucket_name:
-            :param s3_client:
-            :param s3_user_config:
-            :return:
         """
         # check the bucket exists
         if not self._s3_client.bucket_exists(self._bucket_name):
@@ -267,11 +262,28 @@ class s3Client(object):
         """
            Write a file in the cache to the s3 storage
         """
-        full_url = alias + "/" + bucket_name
         try:
             self._s3_client.fput_object(self._bucket_name, self._object_name, s3_cache_filename)
         except BaseException:
             raise s3IOException("Error: " + self._full_url + " cannot write S3 object.")
+
+    def write_object(self, s3_object_uri, s3_cache_filename):
+        """
+            Write a file in the cache to a named object / uri on the s3 storage
+        """
+        split_ep = s3_object_uri.split("/")
+        # now get the bucketname
+        bucket_name = split_ep[3]
+        # finally set the object (prefix + object name)
+        object_name = "/".join(split_ep[4:])
+
+        # get the local name
+        local_name = os.path.join(self.get_cache_location(), s3_cache_filename)
+
+        try:
+            self._s3_client.fput_object(bucket_name, object_name, local_name)
+        except BaseException:
+            raise s3IOException("Error: " + s3_object_uri + " cannot write S3 object.")
 
 
     def get_full_url(self):
@@ -280,3 +292,7 @@ class s3Client(object):
 
     def get_cache_location(self):
         return self._s3_user_config["cache_location"]
+
+
+    def get_max_object_size(self):
+        return self._s3_user_config["max_object_size"]
