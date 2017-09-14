@@ -5,3 +5,4 @@ import pyximport
 pyximport.install()
 
 from ._s3netCDF4 import *
+from ._s3netCDFIO import *

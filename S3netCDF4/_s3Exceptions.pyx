@@ -3,6 +3,5 @@ class s3IOException(BaseException):
     pass
 
 
-
 class s3APIException(BaseException):
     pass

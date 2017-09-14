@@ -1,9 +1,11 @@
 """
-Functions to support S3 enabled version of .
+An S3 client that has a local file cache.  For use by CEDA S3 / object store read / write libraries.
 
 Author  : Neil Massey
 Date    : 10/07/2017
 Modified: 07/08/2017: Rewritten as a class so we don't have to pass so many variables around!
+Modified: 07/09/2017: Removed one client / one object mapping, and introduced strict filename mapping between
+                      objects in the cache and objects on the S3 storage.
 """
 
 # using the minio client API as the interface to the S3 HTTP API
@@ -14,10 +16,18 @@ import os
 
 from _s3Exceptions import *
 
+def _urljoin(*args):
+    """
+    Joins given arguments into a url. Trailing but not leading slashes are
+    stripped for each argument.
+    """
+
+    return "/".join(map(lambda x: str(x).rstrip('/'), args))
+
 class s3Client(object):
 
     # abstraction of s3_client operations on netCDF files as a class
-    def __init__(self, uri_name):
+    def __init__(self, s3_endpoint):
 
         # First read the JSON config file for cfs3 from the user home directory.
         # Config file is called: .cfs3.json
@@ -41,28 +51,20 @@ class s3Client(object):
         except IOError:
             raise s3IOException("User config file does not exist with path: " + s3_user_config_filename)
 
-        # now split the URI on "/" separator
-        split_ep = uri_name.split("/")
-        # get the s3 endpoint first
-        s3_ep = "s3://" + split_ep[2]
-        # now get the bucketname
-        self._bucket_name = split_ep[3]
-        # finally set the object (prefix + object name)
-        self._object_name = "/".join(split_ep[4:])
 
         # search through the "aliases" in the user_config file to find the http url for the s3 endpoint
         self._host_name = None
         try:
             hosts = self._s3_user_config["hosts"]
             for h in hosts:
-                if s3_ep in hosts[h]['alias']:
+                if s3_endpoint in hosts[h]['alias']:
                     self._host_name = h
         except:
             raise s3IOException("Error in config file " + self._s3_user_config["filename"])
 
         # check whether the url was found in the config file
         if self._host_name == None:
-           raise s3IOException(s3_ep + " was not found as an alias in the user config file " + self._s3_user_config["filename"])
+           raise s3IOException(s3_endpoint + " was not found as an alias in the user config file " + self._s3_user_config["filename"])
 
         # Now we have the host_name, get the url, access key and secret key from the host data
         try:
@@ -70,7 +72,7 @@ class s3Client(object):
             url_name = self._host_config['url']
             secret_key = self._host_config['secretKey']
             access_key = self._host_config['accessKey']
-            self._full_url = self._s3_user_config["hosts"][self._host_name]["alias"] + "/" + self._bucket_name + "/" + self._object_name
+            self._url = self._s3_user_config["hosts"][self._host_name]["alias"]
         except:
             raise s3IOException("Error in config file " + self._s3_user_config["filename"])
 
@@ -137,63 +139,71 @@ class s3Client(object):
                 self._s3_user_config[key] = int(size)
 
 
-    def get_partial(self, start, size):
-        return self._s3_client.get_partial_object(self._bucket_name, self._object_name, start, size)
+    def get_partial(self, bucket_name, object_name, start, size):
+        return self._s3_client.get_partial_object(bucket_name, object_name, start, size)
 
 
-    def should_stream_to_cache(self, stream_to_cache=False):
+    def should_stream_to_cache(self, bucket_name, object_name):
         """
            Determine whether the object should be streamed to a file, or into memory.
            The criteria are as follows:
-             1. User specifies to stream to a file
-             2. The object is bigger than the user_config["max_file_size_for_memory"]
-             3. The object is larger than the amount of free RAM
+             1. The object is bigger than the user_config["max_file_size_for_memory"]
+             2. The object is larger than the amount of free RAM
            :return: boolean (True | False)
         """
         stream_to_file = False
 
+        # full url for error reporting
+        full_url = _urljoin(self._url, bucket_name, object_name)
+
         # This nested if..else.. is to improve performance - don't make any calls
         #  to object store or system processes unless we really have to.
 
-        # First check - does the user want to stream to the file
-        if stream_to_cache:
+        # get the size of the object
+        try:
+            object_stats = self._s3_client.stat_object(bucket_name, object_name)
+        except BaseException:
+            raise s3IOException("Error: " + full_url + " not found.")
+
+        # check whether the size is greater than the user_config setting
+        if object_stats.size > self._s3_user_config["max_file_size_for_memory"]:
             stream_to_file = True
         else:
-            # get the size of the object
-            try:
-                object_stats = self._s3_client.stat_object(self._bucket_name, self._object_name)
-            except BaseException:
-                raise s3IOException("Error: " + self._full_url + " not found.")
-
-            # check whether the size is greater than the user_config setting
-            if object_stats.size > self._s3_user_config["max_file_size_for_memory"]:
+            # check whether the size is greater than the free memory
+            mem = virtual_memory()
+            if object_stats.size > mem.available:
                 stream_to_file = True
-            else:
-                # check whether the size is greater than the free memory
-                mem = virtual_memory()
-                if object_stats.size > mem.available:
-                    stream_to_file = True
 
         return stream_to_file
 
 
-    def stream_to_cache(self):
+    def get_cachefile_path(self, bucket_name, object_name):
+        # Create the destination filepath
+        cachefile_path = self._s3_user_config["cache_location"] + "/" + bucket_name + "/" + object_name
+        return cachefile_path
+
+
+    def stream_to_cache(self, bucket_name, object_name):
         """
            Download the object to the cache as a file.
            If it already exists then check whether the object on the object store is newer than the file on the disk.
            :return: string filename in the cache
         """
-        # Create the destination filepath
-        dest_path = self._s3_user_config["cache_location"] + "/" + self._bucket_name + "/" + self._object_name
+
+        # full url for error reporting
+        full_url = _urljoin(self._url, bucket_name, object_name)
+
+        # get the path in the cache
+        dest_path = self.get_cachefile_path(bucket_name, object_name)
 
         # First check whether the file exists
         if os.path.exists(dest_path):
             # get the date of the object on the object store
             # these exceptions shouldn't really happen but I'm writing particularly defensive code!
             try:
-                object_stats = self._s3_client.stat_object(self._bucket_name, self._object_name)
+                object_stats = self._s3_client.stat_object(bucket_name, object_name)
             except BaseException:
-                raise s3IOException("Error: " + self._full_url + " not found.")
+                raise s3IOException("Error: " + full_url + " not found.")
             # get the date of the corresponding file on the file system
             try:
                 file_stats = os.stat(dest_path)
@@ -206,7 +216,8 @@ class s3Client(object):
                 try:
                     self._s3_client.fget_object(bucket_name, object_name, dest_path)
                 except BaseException:
-                    raise s3IOException("Error: " + self._full_url + " not found.")
+                    raise s3IOException("Error: " + full_url + " not found.")
+
         else:
             # Does not exist so we have to download the file
             # first create the destination directory, if it doesn't exist
@@ -215,79 +226,71 @@ class s3Client(object):
                 os.makedirs(os.path.dirname(dest_dir))
             # now try downloading the file
             try:
-                self._s3_client.fget_object(self._bucket_name, self._object_name, self._dest_path)
+                self._s3_client.fget_object(bucket_name, object_name, dest_path)
             except BaseException:
-                raise s3IOException("Error: " + self._full_url + " not found.")
+                raise s3IOException("Error: " + full_url + " not found.")
 
         return dest_path
 
 
-    def stream_to_memory(self):
+    def stream_to_memory(self, bucket_name, object_name):
         """
            Download the object to some memory.
            :return: memory buffer containing the bytes of the netCDF file
         """
+        # full url for error reporting
+        full_url = _urljoin(self._url, bucket_name, object_name)
+
         try:
-            s3_object = self._s3_client.get_object(self._bucket_name, self._object_name)
+            s3_object = self._s3_client.get_object(bucket_name, object_name)
         except BaseException:
-            raise s3IOException("Error: " + self._full_url + " not found.")
+            raise s3IOException("Error: " + full_url + " not found.")
         # stream the data
         return s3_object.data
 
 
-    def object_exists(self):
+    def object_exists(self, bucket_name, object_name):
         """
            Check whether the object actually exists
         """
         try:
-            object = self._s3_client.stat_object(self._bucket_name, self._object_name)
+            object = self._s3_client.stat_object(bucket_name, object_name)
             return True
         except BaseException:
             return False
 
 
-    def create_bucket(self):
+    def create_bucket(self, bucket_name):
         """
            Create a bucket on S3 storage
         """
+        # full url for error reporting
+        full_url = _urljoin(self._url, bucket_name, object_name)
         # check the bucket exists
-        if not self._s3_client.bucket_exists(self._bucket_name):
+        if not self._s3_client.bucket_exists(bucket_name):
             try:
-                self._s3_client.make_bucket(self._bucket_name)
+                self._s3_client.make_bucket(bucket_name)
             except BaseException:
-                raise s3IOException("Error: " + self._full_url + " cannot create bucket.")
+                raise s3IOException("Error: " + full_url + " cannot create bucket.")
 
 
-    def write(self, s3_cache_filename):
+    def write(self, bucket_name, object_name):
         """
            Write a file in the cache to the s3 storage
         """
-        try:
-            self._s3_client.fput_object(self._bucket_name, self._object_name, s3_cache_filename)
-        except BaseException:
-            raise s3IOException("Error: " + self._full_url + " cannot write S3 object.")
+        # full url for error reporting
+        full_url = _urljoin(self._url, bucket_name, object_name)
+        # get the path in the cache
+        s3_cache_filename = self.get_cachefile_path(bucket_name, object_name)
 
-    def write_object(self, s3_object_uri, s3_cache_filename):
-        """
-            Write a file in the cache to a named object / uri on the s3 storage
-        """
-        split_ep = s3_object_uri.split("/")
-        # now get the bucketname
-        bucket_name = split_ep[3]
-        # finally set the object (prefix + object name)
-        object_name = "/".join(split_ep[4:])
-
-        # get the local name
-        local_name = os.path.join(self.get_cache_location(), s3_cache_filename)
+        # check the file exists in the cache
+        if not(os.path.exists(s3_cache_filename)):
+            raise s3IOException("Error: " + s3_cache_filename + " file not found in cache.")
 
         try:
-            self._s3_client.fput_object(bucket_name, object_name, local_name)
+            self._s3_client.fput_object(bucket_name, object_name, s3_cache_filename)
         except BaseException:
-            raise s3IOException("Error: " + s3_object_uri + " cannot write S3 object.")
-
-
-    def get_full_url(self):
-        return self._full_url
+            raise s3IOException("Error: " + full_url + " cannot write S3 object.")
 
 
     def get_cache_location(self):
@@ -296,3 +299,8 @@ class s3Client(object):
 
     def get_max_object_size(self):
         return self._s3_user_config["max_object_size"]
+
+
+    def get_full_url(self, bucket_name, object_name):
+        full_url = _urljoin(self._url, bucket_name, object_name)
+        return full_url
