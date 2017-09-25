@@ -8,7 +8,7 @@ Date:   07/09/2017
 
 from _s3Client import *
 from _s3Exceptions import *
-
+from _CFAClasses import *
 
 cdef class s3netCDFFile:
     """
@@ -21,6 +21,7 @@ cdef class s3netCDFFile:
     cdef public basestring filemode
     cdef public basestring format
     cdef public basestring memory
+    cdef public cfa_file
 
     def __init__(self, filename = "", s3_uri = "", filemode = 'r', memory = ""):
         """
@@ -49,6 +50,11 @@ cdef class s3netCDFFile:
             ret_str += "', memory=None'"
         else:
             ret_str += "', memory=allocated'"
+
+        if self.cfa_file:
+            ret_str += "', cfa_file=present'"
+
+        ret_str += ")"
         return ret_str
 
 

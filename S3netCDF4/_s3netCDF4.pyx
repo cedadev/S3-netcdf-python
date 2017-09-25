@@ -64,6 +64,23 @@ class s3Dataset(netCDF4.Dataset):
                                          format=self._file_details.format, diskless=False, persist=persist,
                                          keepweakref=keepweakref, memory=None, **kwargs)
 
+            # check if file is a CFA file, for standard netCDF files
+            try:
+                cfa = "CFA" in self.getncattr("Conventions")
+            except:
+                cfa = False
+
+            if cfa:
+                self._file_details.cfa_file = CFAFile()
+                self._file_details.cfa_file.Parse(self)
+                # recreate the variables as s3Variables and attach the cfa data
+                for v in self.variables:
+                    if v in self._file_details.cfa_file.variables:
+                        self.variables[v] = s3Variable(self.variables[v], self._file_details.cfa_file.variables[v])
+
+            else:
+                self._file_details.cfa_file = None
+
         elif mode == 'w':           # write
             # for writing a file, all we have to do is check that the containing folder in the cache exists
             if self._file_details.filename != "":   # first check that it is not a diskless file
@@ -102,3 +119,152 @@ class s3Dataset(netCDF4.Dataset):
                                                 self._file_details.filemode == "r+" or
                                                 self._file_details.filemode == 'a'):
             put_netCDF_file(self._file_details.s3_uri)
+
+
+class s3Variable(object):
+    """
+      Inherit the UniData netCDF4 Variable class and override some key methods so as to enable CFA and S3 functionality
+    """
+
+    def __init__(self, nc_var, cfa_var):
+        """Keep a reference to the nc_var and cfa_var"""
+        self.nc_var = nc_var
+        self.cfa_var = cfa_var
+
+
+    """There now follows a long list of functions, matching the netCDF4.Variable interface.
+       The only functions we need to override are __getitem__ and __setitem__, so as to
+       use the CFA information in cfa_var.
+       The other methods we need to pass through to the nc_var member variable."""
+
+    def __repr__(self):
+        return unicode(self.nc_var).encode('utf-8')
+
+    def __array__(self):
+        return self.nc_var.__array__()
+
+    def __unicode__(self):
+        return self.nc_var.__unicode__()
+
+    @property
+    def name(self):
+        return self.nc_var.name
+    @name.setter
+    def name(self, value):
+        raise AttributeError("name cannot be altered")
+
+    @property
+    def datatype(self):
+        return self.nc_var.datatype
+
+    @property
+    def shape(self):
+        return self.nc_var.shape
+    @shape.setter
+    def shape(self, value):
+        raise AttributeError("shape cannot be altered")
+
+    @property
+    def size(self):
+        return self.nc_var.size
+
+    @property
+    def dimensions(self):
+        return self.nc_var.dimensions
+    @dimensions.setter
+    def dimensions(self, value):
+        raise AttributeError("dimensions cannot be altered")
+
+    def group(self):
+        return self.nc_var.group()
+
+    def ncattrs(self):
+        return self.nc_var.ncattrs()
+
+    def setncattr(self, name, value):
+        self.nc_var.setncattr(name, value)
+
+    def setncattr_string(self, name, value):
+        self.nc_var.setncattr(name, value)
+
+    def setncatts(self, attdict):
+        self.nc_var.setncatts(attdict)
+
+    def getncattr(self, name, encoding='utf-8'):
+        return self.nc_var.getncattr(name, encoding)
+
+    def delncattr(self, name):
+        self.nc_var.delncattr(name)
+
+    def filters(self):
+        return self.nc_var.filters()
+
+    def endian(self):
+        return self.nc_var.endian()
+
+    def chunking(self):
+        return self.nc_var.chunking()
+
+    def get_var_chunk_cache(self):
+        return self.nc_var.get_var_chunk_cache()
+
+    def set_var_chunk_cache(self, size=None, nelems=None, preemption=None):
+        self.nc_var.set_var_chunk_cache(size, nelems, preemption)
+
+    def __delattr__(self, name):
+        self.nc_var.__delattr__(name)
+
+    def __setattr__(self, name, value):
+        self.nc_var.__setattr(name, value)
+
+    def __getattr__(self, name):
+        print "!"
+        # if name in _private_atts, it is stored at the python
+        # level and not in the netCDF file.
+        if name.startswith('__') and name.endswith('__'):
+            # if __dict__ requested, return a dict with netCDF attributes.
+            if name == '__dict__':
+                names = self.nc_var.ncattrs()
+                values = []
+                for name in names:
+                    values.append(_get_att(self.nc_var.group(), self.nc_var._varid, name))
+                return OrderedDict(zip(names, values))
+            else:
+                raise AttributeError
+        elif name in netCDF4._private_atts:
+            return self.nc_var.__dict__[name]
+        else:
+            return self.nc_var.getncattr(name)
+
+    def renameAttribute(self, oldname, newname):
+        self.nc_var.renameAttribute(oldname, newname)
+
+    def __len__(self):
+        return self.nc_var.__len__()
+
+    def assignValue(self, val):
+        self.nc_var.assignValue(val)
+
+    def getValue(self):
+        return self.nc_var.getValue()
+
+    def set_auto_chartostring(self, chartostring):
+        self.nc_var.set_auto_chartostring(chartostring)
+
+    def set_auto_maskandscale(self, maskandscale):
+        self.nc_var.set_auto_maskandscale(maskandscale)
+
+    def set_auto_scale(self, scale):
+        self.nc_var.set_auto_scale(scale)
+
+    def set_auto_mask(self, mask):
+        self.nc_var.set_auto_mask(mask)
+
+    def __reduce__(self):
+        return self.nc_var.__reduce__()
+
+    def __getitem__(self, elem):
+        raise NotImplementedError
+
+    def __setitem__(self, elem, data):
+        raise NotImplementedError

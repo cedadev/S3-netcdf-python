@@ -11,6 +11,7 @@ S3_DATASET_PATH = "s3://minio/cru-ts-3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tm
 NC_DATASET_PATH  = "/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tmp.dat.nc"
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
+S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -29,6 +30,10 @@ def test_s3_open_not_netcdf():
     nc_file = Dataset(S3_NOT_NETCDF_PATH, 'r')
     print nc_file
 
+
+def test_s3_open_cfa():
+    nc_file = Dataset(S3_CFA_PATH, 'r')
+    print nc_file._file_details
 
 def test_s3_write_dataset():
     """Test writing a netCDF file to the object store"""
