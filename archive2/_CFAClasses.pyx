@@ -45,7 +45,10 @@
                                                     | shape          [int]          |
                                                     +-------------------------------+
 """
+
 import numpy as np
+cimport numpy as np
+
 import json
 from collections import OrderedDict
 
@@ -53,10 +56,16 @@ class CFAException(BaseException):
     pass
 
 
-class CFAFile:
+cdef class CFAFile:
     """
        Class containing details of a CFAFile (master array)
     """
+
+    cdef public nc_dims
+    cdef public global_metadata
+    cdef public cfa_metadata
+    cdef public variables
+
     def __init__(self, nc_dims = [], global_metadata = {},
                        cfa_metadata = {}, variables = OrderedDict()):
         """Initialise the CFAFile class"""
@@ -97,21 +106,38 @@ class CFAFile:
                 self.variables[v] = cfa_var
 
 
-class CFADim:
+cdef class CFADim:
     """
        Class containing details of a dimension in a CFAFile
     """
+
+    cdef public basestring dim_name
+    cdef public metadata
+    cdef public type
+    cdef public np.ndarray values
+
     def __init__(self, dim_name = None, metadata = {}, type = None, values = []):
         """Initialise the CFADim object"""
         self.dim_name = dim_name
         self.metadata = metadata
-        self.values = np.array(values, type)
+        self.type = type
+        self.values = np.ndarray(values, dtype=type)
 
 
-class CFAVariable:
+cdef class CFAVariable:
     """
        Class containing details of the variables in a CFAFile
     """
+
+    cdef public basestring var_name
+    cdef public metadata
+    cdef public cf_role
+    cdef public cfa_dimensions
+    cdef public np.ndarray pmdimensions
+    cdef public np.ndarray pmshape
+    cdef public basestring base
+    cdef public partitions
+
     def __init__(self, var_name = "", metadata = {},
                        cf_role="", cfa_dimensions = [],
                        pmdimensions = [], pmshape = [],
@@ -121,8 +147,8 @@ class CFAVariable:
         self.metadata = metadata
         self.cf_role = cf_role
         self.cfa_dimensions = cfa_dimensions
-        self.pmdimensions = pmdimensions
-        self.pmshape = pmshape
+        self.pmdimensions = np.ndarray(pmdimensions, dtype='i')
+        self.pmshape = np.ndarray(pmshape, dtype='i')
         self.base = base
         self.partitions = partitions
 
@@ -161,9 +187,9 @@ class CFAVariable:
                 if "base" in cfa_json:
                     self.base = cfa_json["base"]
                 if "pmshape" in cfa_json:
-                    self.pmshape = np.array(cfa_json["pmshape"])
+                    self.pmshape = np.ndarray(cfa_json["pmshape"], dtype='i')
                 if "pmdimensions" in cfa_json:
-                    self.pmdimensions = np.array(cfa_json["pmdimensions"])
+                    self.pmdimensions = np.ndarray(cfa_json["pmdimensions"], dtype='i')
                 for p in cfa_json["Partitions"]:
                     cfa_part = CFAPartition()
                     cfa_part.Parse(p)
@@ -171,14 +197,19 @@ class CFAVariable:
             else:
                 self.metadata[k] = nc_var.getncattr(k)
 
-class CFAPartition:
+cdef class CFAPartition:
     """
        Class containing details of the partitions in a CFAVariable
     """
+
+    cdef public np.ndarray index
+    cdef public np.ndarray location
+    cdef public subarray
+
     def __init__(self, index = [], location = [], subarray = None):
         """Initialise the CFAPartition object"""
-        self.index = np.array(index, 'i')
-        self.location = np.array(location, 'i')
+        self.index = np.ndarray(index, dtype='i')
+        self.location = np.ndarray(location, dtype='i')
         self.subarray = subarray
 
     def Parse(self, part):
@@ -196,16 +227,22 @@ class CFAPartition:
         self.subarray = cfa_subarray
 
 
-class CFASubarray:
+cdef class CFASubarray:
     """
        Class containing details of a subarray in a CFAPartition
     """
+
+    cdef public basestring ncvar
+    cdef public basestring file
+    cdef public basestring format
+    cdef public np.ndarray shape
+
     def __init__(self, ncvar = "", file = "", format = "", shape = []):
         """Initialise the CFASubarray object"""
         self.ncvar = ncvar
         self.file = file
         self.format = format
-        self.shape = np.array(shape, 'i')
+        self.shape = np.ndarray(shape, dtype='i')
 
 
     def Parse(self, subarray):

@@ -10,12 +10,19 @@ from _s3Client import *
 from _s3Exceptions import *
 
 
-class s3netCDFFile:
+cdef class s3netCDFFile:
     """
        Class to return details of a netCDF file that may be on a POSIX file system, on S3 storage then
          streamed to a POSIX file cache or streamed from S3 directly into memory.
     """
-    def __init__(self, filename = "", s3_uri = "", filemode = 'r', memory = None):
+
+    cdef public basestring filename
+    cdef public basestring s3_uri
+    cdef public basestring filemode
+    cdef public basestring format
+    cdef public basestring memory
+
+    def __init__(self, filename = "", s3_uri = "", filemode = 'r', memory = ""):
         """
         :param filename: the original filename on disk (or openDAP URI) or the filename of the cached file - i.e. where
                          the S3 file is streamed (for 'r' and 'a' filemodes) or created (for 'w' filemodes).
@@ -35,10 +42,14 @@ class s3netCDFFile:
         return "s3netCDFFile"
 
     def __str__(self):
-        return "<s3netCDFFile> (filename='"+ self.filename +\
+        ret_str = "<s3netCDFFile> (filename='"+ self.filename +\
                                 "', s3_uri='" + self.s3_uri +\
-                                "', filemode='" + self.filemode +\
-                                "', memory=" + str(self.memory) + ")"
+                                "', filemode='" + self.filemode
+        if self.memory == "":
+            ret_str += "', memory=None'"
+        else:
+            ret_str += "', memory=allocated'"
+        return ret_str
 
 
 def _get_netCDF_filetype(s3_client, bucket_name, object_name):
