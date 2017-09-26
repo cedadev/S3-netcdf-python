@@ -11,7 +11,7 @@ Date:   10/07/2017
 # This module inherits from the standard netCDF4 implementation
 # import as UniData netCDF4 to avoid confusion with the S3 module
 import netCDF4._netCDF4 as netCDF4
-from _s3netCDFIO import get_netCDF_file_details, put_netCDF_file
+from _s3netCDFIO import get_netCDF_file_details, put_netCDF_file, put_CFA_file
 from _s3Exceptions import *
 
 import os
@@ -30,7 +30,7 @@ class s3Dataset(netCDF4.Dataset):
        read and write of netCDF file to an object store accessed via an AWS S3 HTTP API.
     """
 
-    def __init__(self, filename, mode='r', clobber=True, format='NETCDF4',
+    def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                  diskless=False, persist=False, keepweakref=False, memory=None,
                  **kwargs):
         """
@@ -65,6 +65,19 @@ class s3Dataset(netCDF4.Dataset):
                                          keepweakref=keepweakref, memory=None, **kwargs)
 
         elif mode == 'w':           # write
+            # check the format for writing - allow CFA4 in arguments and default to it as well
+            # we DEFAULT to CFA4 for writing to S3 object stores so as to distribute files across objects
+            if format == 'CFA4' or format == 'DEFAULT':
+                format = 'NETCDF4'
+                self._file_details.format = format
+                self._file_details.cfa_file = True
+            elif format == 'CFA3':
+                format = 'NETCDF3_CLASSIC'
+                self._file_details.format = format
+                self._file_details.cfa_file = True
+            else:
+                self._file_details.cfa_file = False
+
             # for writing a file, all we have to do is check that the containing folder in the cache exists
             if self._file_details.filename != "":   # first check that it is not a diskless file
                 cache_dir = os.path.dirname(self._file_details.filename)
@@ -98,7 +111,16 @@ class s3Dataset(netCDF4.Dataset):
         """Close the netCDF file.  If it is a S3 file and the mode is write then upload to the storage."""
         # close the netCDF file first - needed to finish writing to disk
         netCDF4.Dataset.close(self)
-        if self._file_details.s3_uri != "" and (self._file_details.filemode == 'w' or
-                                                self._file_details.filemode == "r+" or
-                                                self._file_details.filemode == 'a'):
-            put_netCDF_file(self._file_details.s3_uri)
+        if (self._file_details.filemode == 'w' or
+            self._file_details.filemode == "r+" or
+            self._file_details.filemode == 'a'):
+            # get the filename - either the s3_uri or the filename
+            if self._file_details.s3_uri != "":
+                filename = self._file_details.s3_uri
+            else:
+                filename = self._file_details.filename
+            # if it's a CFA file then write out the master CFA file and the sub CF netCDF files
+            if self._file_details.cfa_file:
+                put_CFA_file(filename, format=self._file_details.format)
+            else:
+                put_netCDF_file(filename)
