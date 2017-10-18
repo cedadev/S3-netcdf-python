@@ -68,7 +68,7 @@ def _get_netCDF_filetype(s3_client, bucket_name, object_name):
        be created with the same type.
 
        The possible types are:
-       `NETCDF3_CLASSIC`, `NETCDF4`,`NETCDF4_CLASSIC`, `NETCDF3_64BIT_OFFSET` or `NETCDF3_64BIT_DATA
+       `NETCDF3_CLASSIC`, `NETCDF4`,`NETCDF4_CLASSIC`, `NETCDF3_64BIT_OFFSET` or `NETCDF3_64BIT_DATA`
        or
        `NOT_NETCDF` if it is not a netCDF file - raise an exception on that
 

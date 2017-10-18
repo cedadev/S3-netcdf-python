@@ -16,7 +16,7 @@ import os
 
 from _s3Exceptions import *
 
-def _urljoin(*args):
+def urljoin(*args):
     """
     Joins given arguments into a url. Trailing but not leading slashes are
     stripped for each argument.
@@ -24,11 +24,11 @@ def _urljoin(*args):
     url = "/".join(map(lambda x: str(x).rstrip('/'), args))
     return url
 
-class s3Client(object):
 
-    # abstraction of s3_client operations on netCDF files as a class
-    def __init__(self, s3_endpoint):
+class s3ClientConfig(object):
+    """Class to read in config file and interpret it"""
 
+    def __init__(self):
         # First read the JSON config file for cfs3 from the user home directory.
         # Config file is called: .cfs3.json
         # get user home directory
@@ -51,6 +51,59 @@ class s3Client(object):
         except IOError:
             raise s3IOException("User config file does not exist with path: " + s3_user_config_filename)
 
+
+    def interpret_config_file(self):
+        """
+           Transform some of the variables in the config file, especially those file / memory sizes
+           that are expressed in human readable form
+        """
+        # list of keys to convert
+        keys_to_convert = ["max_object_size", "max_cache_size", "max_file_size_for_memory"]
+        # list of file format sizes
+        file_format_sizes = ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+        # dictionary mapping to multiplier
+        file_format_scale = {"B" : 1,
+                             "kB" : 1e3,
+                             "MB" : 1e6,
+                             "GB" : 1e9,
+                             "TB" : 1e12,
+                             "EB" : 1e15,
+                             "ZB" : 1e18,
+                             "YB" : 1e21}
+
+        for key in self._s3_user_config:
+            if key in keys_to_convert:
+                value = self._s3_user_config[key]
+                if value.endswith(file_format_sizes):
+                    suffix = value[-2:]
+                    size = int(value[:-2])
+                elif value[-1] == "B":
+                    suffix = "B"
+                    size = int(value[:-1])
+                else:
+                    suffix = "B"
+                    size = int(value)
+                # multiply by scalar
+                size *= file_format_scale[suffix]
+                # reassign to s3_user_config
+                self._s3_user_config[key] = int(size)
+
+
+    def __getitem__(self, name):
+        """Get a value from the s3 config"""
+        return self._s3_user_config[name]
+
+
+class s3Client(object):
+
+    # abstraction of s3_client operations on netCDF files as a class
+    def __init__(self, s3_endpoint, s3_user_config = None):
+
+        # create an s3 config and read it in, if it hasn't already been supplied
+        if s3_user_config is None:
+            self._s3_user_config = s3ClientConfig()
+        else:
+            self._s3_user_config = s3_user_config
 
         # search through the "aliases" in the user_config file to find the http url for the s3 endpoint
         self._host_name = None
@@ -102,42 +155,6 @@ class s3Client(object):
         #             dest_dir = None
         pass
 
-    def interpret_config_file(self):
-        """
-           Transform some of the variables in the config file, especially those file / memory sizes
-           that are expressed in human readable form
-        """
-        # list of keys to convert
-        keys_to_convert = ["max_object_size", "max_cache_size", "max_file_size_for_memory"]
-        # list of file format sizes
-        file_format_sizes = ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
-        # dictionary mapping to multiplier
-        file_format_scale = {"B" : 1,
-                             "kB" : 1e3,
-                             "MB" : 1e6,
-                             "GB" : 1e9,
-                             "TB" : 1e12,
-                             "EB" : 1e15,
-                             "ZB" : 1e18,
-                             "YB" : 1e21}
-
-        for key in self._s3_user_config:
-            if key in keys_to_convert:
-                value = self._s3_user_config[key]
-                if value.endswith(file_format_sizes):
-                    suffix = value[-2:]
-                    size = int(value[:-2])
-                elif value[-1] == "B":
-                    suffix = "B"
-                    size = int(value[:-1])
-                else:
-                    suffix = "B"
-                    size = int(value)
-                # multiply by scalar
-                size *= file_format_scale[suffix]
-                # reassign to s3_user_config
-                self._s3_user_config[key] = int(size)
-
 
     def get_partial(self, bucket_name, object_name, start, size):
         return self._s3_client.get_partial_object(bucket_name, object_name, start, size)
@@ -154,7 +171,7 @@ class s3Client(object):
         stream_to_file = False
 
         # full url for error reporting
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
 
         # This nested if..else.. is to improve performance - don't make any calls
         #  to object store or system processes unless we really have to.
@@ -191,7 +208,7 @@ class s3Client(object):
         """
 
         # full url for error reporting
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
 
         # get the path in the cache
         dest_path = self.get_cachefile_path(bucket_name, object_name)
@@ -239,7 +256,7 @@ class s3Client(object):
            :return: memory buffer containing the bytes of the netCDF file
         """
         # full url for error reporting
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
 
         try:
             s3_object = self._s3_client.get_object(bucket_name, object_name)
@@ -265,7 +282,7 @@ class s3Client(object):
            Create a bucket on S3 storage
         """
         # full url for error reporting
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
         # check the bucket exists
         if not self._s3_client.bucket_exists(bucket_name):
             try:
@@ -279,7 +296,7 @@ class s3Client(object):
            Write a file in the cache to the s3 storage
         """
         # full url for error reporting
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
         # get the path in the cache
         s3_cache_filename = self.get_cachefile_path(bucket_name, object_name)
 
@@ -302,5 +319,5 @@ class s3Client(object):
 
 
     def get_full_url(self, bucket_name, object_name):
-        full_url = _urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name, object_name)
         return full_url
