@@ -31,7 +31,6 @@ class s3netCDFFile:
         self.filemode = filemode
         self.memory = memory
         self.format = 'NOT_NETCDF'
-        self.cfa_file = False
 
     def __repr__(self):
         return "s3netCDFFile"
