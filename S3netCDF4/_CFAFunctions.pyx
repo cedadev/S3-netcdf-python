@@ -259,3 +259,53 @@ def create_partitions(base_filepath, dataset, dimensions,
         partitions.append(partition)
 
     return pmshape, partitions
+
+
+def partition_overlaps(partition, slices):
+    """Check whether a partition overlaps with the start and end indices"""
+    if len(partition.location) == 0:
+        return False
+    assert(len(partition.location) == len(slices))
+    overlaps = True
+    for i in range(0, len(partition.location)):
+        # overlap if the slice start index lies between the start and end index for this partition
+        # OR if the slice end index lies between the start and end index for this partition
+        # get the slice
+        s = slices[i]
+        start_overlaps = (s.start >= partition.location[i,0]) & (s.start <= (partition.location[i,1]))
+        end_overlaps = (s.stop >= partition.location[i,0]) & (s.stop <= (partition.location[i,1]))
+        overlaps &= (start_overlaps | end_overlaps)
+    return overlaps
+
+
+def fill_slices(master_array_shape, elems):
+    """Fill out the tuple of slices so that there is a slice for each dimension and each slice
+    contains the indices explictly, rather than `None`."""
+    # convert the slice into a "full slice" - i.e. having a slice for each dimension and having all the indices
+    # explicitly numbered in the slice, without any "Nones"
+    lmas = len(master_array_shape)
+    # a list of slices - convert to a tuple at the end
+    slices = []
+    # check first whether this is a single slice or a tuple of them
+    if type(elems) is slice:
+        # fill in the first of the indices
+        elems_list = elems.indices(master_array_shape[0])
+        slices.append(slice(elems_list[0], elems_list[1]-1, elems_list[2]))
+        # how many slices to fill for the rest of the dimensions
+        fill_number = lmas - 1
+        start_number = 1
+    else:
+        # check that length of elems is equal to or less than the master_array_shape
+        assert(len(elems) <= len(master_array_shape))
+        # fill the indices from the 0 index upwards
+        for s in range(0, len(elems)):
+            elems_list = elems[s].indices(master_array_shape[s])
+            slices.append(slice(elems_list[0], elems_list[1]-1, elems_list[2]))
+
+        # where to fill out the rest of the indicates
+        fill_number = lmas - len(elems)
+        start_number = len(elems)
+    # fill out the rest of the slices
+    for s in range(0, fill_number):
+        slices.append(slice(0, master_array_shape[start_number+s]-1, 1))
+    return slices

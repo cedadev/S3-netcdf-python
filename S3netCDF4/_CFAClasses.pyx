@@ -13,17 +13,18 @@
    +-------------------------------+                +-------------------------------+
    | CFAFile                       |        +------>| CFADim                        |
    +-------------------------------+        |       +-------------------------------+
-   | file_name       string        |        |       | dim_name         string       |
-   | cfa_dims        [CFADim]      |--------+       | metadata         {}           |
-   | global_metadata {}            |                | values           numpy[float] |
-   | cfa_metadata    {}            |                +-------------------------------+
-   | variables       [CFAVariable] |--------+
+   | cfa_vars        {CFAVariable} |        |       | dim_name         string       |
+   | cfa_dims        {CFADim}      |--------+       | metadata         {}           |
+   | format          string        |                | dim_len          [int]        |
+   | cfa_metadata    {}            |                | values           [float]      |
+   |                               |--------+       +-------------------------------+
    +-------------------------------+        |
                                             |       +-------------------------------+
                                             +------>| CFAVariable                   |
                                                     +-------------------------------+
                                                     | var_name       string         |
                                                     | metadata       {}             |
+                                                    | cf_role        string         |
                                                     | pmdimensions   [string]       |
                                                     | pmshape        [int]          |
                                                     | base           string         |
@@ -63,13 +64,16 @@ cdef class CFAFile:
     cdef public dict cfa_dims
     cdef public dict cfa_metadata
     cdef public dict cfa_vars
+    cdef public basestring format
 
     def __init__(self, cfa_dims = {},
-                 cfa_metadata = {}, cfa_vars = {}):
+                 cfa_metadata = {}, cfa_vars = {},
+                 format="NETCDF4"):
         """Initialise the CFAFile class"""
-        self.cfa_dims = cfa_dims
-        self.cfa_metadata = cfa_metadata
-        self.cfa_vars = cfa_vars
+        self.cfa_dims = dict(cfa_dims)
+        self.cfa_metadata = dict(cfa_metadata)
+        self.cfa_vars = dict(cfa_vars)
+        self.format = format
 
 
     cpdef parse(self, nc_dataset):
@@ -84,12 +88,13 @@ cdef class CFAFile:
         for d in nc_dataset.dimensions:
             # get the dimension's associated variable
             dim_var = nc_dataset.variables[d]
-            values = dim_var[:]
+            # get the metadata
+            md = {k: dim_var.getncattr(k) for k in dim_var.ncattrs()}
             # create the dimension and append to list of cfa_dims
-            self.cfa_dims[d] = CFADim(dim_name=d, dtype=values.dtype, values=values)
+            self.cfa_dims[d] = CFADim(dim_name=d, dim_len=dim_var.shape[0], metadata = md)
 
         # next get the variables
-        self.variables = {}
+        self.cfa_vars = {}
         for v in nc_dataset.variables:
             # check that this variable has a cf_role
             if "cf_role" in nc_dataset.variables[v].ncattrs():
@@ -105,23 +110,33 @@ cdef class CFADim:
     """
 
     cdef public basestring dim_name
-    cdef public dtype
+    cdef public int dim_len
     cdef public np.ndarray values
+    cdef public dict metadata
 
-    def __init__(self, dim_name = None,
-                 dtype = None, values = []):
+    def __init__(self, dim_name = None, dim_len = None, metadata = {}):
         """Initialise the CFADim object"""
         self.dim_name = dim_name
-        self.dtype = dtype
-        if values != []:
-            self.values = values[:]
+        if dim_len is None:
+            self.dim_len = -1
+        else:
+            self.dim_len = dim_len
+        self.values = np.array([], dtype='f')
+        self.metadata = dict(metadata)
 
 
     cpdef dict(self):
         """Return a dictionary representation of the CFADim"""
         return {"dim_name" : self.dim_name,
-                "dtype"    : self.dtype,
-                "values"   : self.values}
+                "dim_len"  : self.dim_len,
+                "values"   : self.values,
+                "metadata" : self.metadata}
+
+
+    cpdef setValues(self, values = None, dtype = 'f'):
+        """Set the values of the dimension"""
+        if values != None:
+            self.values = np.array(values, dtype=dtype)
 
 
 cdef class CFAVariable:
@@ -147,13 +162,13 @@ cdef class CFAVariable:
         self.cf_role = cf_role
         # no point in creating empty data
         if cfa_dimensions != []:
-            self.cfa_dimensions = cfa_dimensions
+            self.cfa_dimensions = list(cfa_dimensions)
         if pmdimensions != []:
-            self.pmdimensions = pmdimensions
+            self.pmdimensions = list(pmdimensions)
         if pmshape != []:
             self.pmshape = np.array(pmshape, dtype='i')
         self.base = base
-        self.partitions = partitions
+        self.partitions = list(partitions)
 
 
     cpdef parse(self, nc_var):
@@ -187,7 +202,7 @@ cdef class CFAVariable:
                 if "base" in cfa_json:
                     self.base = cfa_json["base"]
                 if "pmshape" in cfa_json:
-                    self.pmshape = np.ndarray(cfa_json["pmshape"], dtype='i')
+                    self.pmshape = np.array(cfa_json["pmshape"], dtype='i')
                 if "pmdimensions" in cfa_json:
                     self.pmdimensions = cfa_json["pmdimensions"]
                 for p in cfa_json["Partitions"]:
@@ -237,7 +252,7 @@ cdef class CFAPartition:
         if "index" in part:
             self.index = np.array(part["index"], 'i')
         if "location" in part:
-            self.index = np.array(part["location"], 'i')
+            self.location = np.array(part["location"], 'i')
         cfa_subarray = CFASubarray()
         cfa_subarray.parse(part["subarray"])
         self.subarray = cfa_subarray

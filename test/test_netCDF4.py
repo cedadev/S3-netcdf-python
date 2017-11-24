@@ -12,8 +12,9 @@ NC_DATASET_PATH  = "/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
 S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
-WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nc"
-WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nc"
+WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
+WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
+#WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -115,25 +116,45 @@ def test_s3_split_dataset():
     # copy the variables, attributes etc.
     # copy all file data
     for name, variable in src.variables.iteritems():
-        if not name in src.dimensions:
+        if name not in src.dimensions:
             var = dst.createVariable(name, variable.datatype, variable.dimensions)
             d = {k: src.variables[name].getncattr(k) for k in src.variables[name].ncattrs()}
             var.setncatts(d)
-            #var[:] = src.variables[name][:]
+            # write out the data fields in 4 chunks, just for fun and to test the writing code
+            var_shape = var.shape
+            if len(var_shape) == 4:
+                t_sze = var.shape[0]
+                lon_sze = var.shape[3]
+                lat_sze = var.shape[2] / 2
+                #var[:, :, 0:lat_sze, 0:lon_sze] = src.variables[name][:, :, 0:lat_sze, 0:lon_sze]
+                #var[:, :, lat_sze:, 0:lon_sze] = src.variables[name][:, :, lat_sze:, 0:lon_sze]
+                #var[:, :, 0:lat_sze, lon_sze:] = src.variables[name][:, :, 0:lat_sze, lon_sze:]
+                #var[:, :, lat_sze:, lon_sze:] = src.variables[name][:, :, lat_sze:, lon_sze:]
+                var[:] = src.variables[name][:]
+            else:
+                var[:] = src.variables[name][:]
+
     dst.close()
     src.close()
 
 
 def test_s3_read_cfa():
     """Test opening a CFA file on the object."""
-    nc_file = Dataset(S3_CFA_PATH, 'r')
-    nc_var = nc_file.get_variable("field50_1")
+    nc_file = Dataset(WAH_S3_DATASET_PATH, 'r')
+    nc_var = nc_file.getVariable("field8")
     print nc_var.shape
     print nc_var.dimensions
     print nc_var.name
     print nc_var.datatype
     print nc_var.size
-    print nc_file.get_variables()
+    print type(nc_var)
+    print np.mean(nc_var[:])
+
+    # load the original file and take the mean
+    src_file = Dataset(WAH_NC4_DATASET_PATH)
+    src_var = src_file.variables["field8"]
+    print type(src_var)
+    print np.mean(nc_var[:])
 
 
 if __name__ == "__main__":
@@ -141,5 +162,5 @@ if __name__ == "__main__":
     #test_file_open_dataset()
     #test_s3_write_dataset()
     #test_s3_open_not_netcdf()
-    test_s3_split_dataset()
-    #test_s3_read_cfa()
+    #test_s3_split_dataset()
+    test_s3_read_cfa()
