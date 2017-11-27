@@ -304,3 +304,26 @@ cdef class CFASubarray:
                 "file"   : self.file,
                 "format" : self.format,
                 "shape"  : self.shape.tolist()}
+
+
+cdef class CFASlice:
+    """
+       Class containing a read / write slice and conversion to Python slice
+    """
+    cdef public int start
+    cdef public int stop
+    cdef public int step
+
+    def __init__(self, start=0, stop=-1, step=1):
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def to_pyslice(self):
+        return slice(self.start, self.stop, self.step)
+
+    def __str__(self):
+        return "[{}, {}, {}]".format(self.start, self.stop, self.step)
+
+    def __repr__(self):
+        return "[{}, {}, {}]".format(self.start, self.stop, self.step)

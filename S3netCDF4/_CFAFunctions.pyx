@@ -294,13 +294,22 @@ def fill_slices(master_array_shape, elems):
         # how many slices to fill for the rest of the dimensions
         fill_number = lmas - 1
         start_number = 1
+    # check whether this is a single integer
+    elif type(elems) is int:
+        # loop over the array
+        slices.append(slice(elems, elems, 1))
+        fill_number = len(master_array_shape) - 1
+        start_number = 1
     else:
         # check that length of elems is equal to or less than the master_array_shape
         assert(len(elems) <= len(master_array_shape))
         # fill the indices from the 0 index upwards
         for s in range(0, len(elems)):
-            elems_list = elems[s].indices(master_array_shape[s])
-            slices.append(slice(elems_list[0], elems_list[1]-1, elems_list[2]))
+            if type(elems[s]) is int:
+                slices.append(slice(elems[s], elems[s], 1))
+            else:
+                elems_list = elems[s].indices(master_array_shape[s])
+                slices.append(slice(elems_list[0], elems_list[1]-1, elems_list[2]))
 
         # where to fill out the rest of the indicates
         fill_number = lmas - len(elems)

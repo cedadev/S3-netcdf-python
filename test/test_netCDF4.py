@@ -120,19 +120,7 @@ def test_s3_split_dataset():
             var = dst.createVariable(name, variable.datatype, variable.dimensions)
             d = {k: src.variables[name].getncattr(k) for k in src.variables[name].ncattrs()}
             var.setncatts(d)
-            # write out the data fields in 4 chunks, just for fun and to test the writing code
-            var_shape = var.shape
-            if len(var_shape) == 4:
-                t_sze = var.shape[0]
-                lon_sze = var.shape[3]
-                lat_sze = var.shape[2] / 2
-                #var[:, :, 0:lat_sze, 0:lon_sze] = src.variables[name][:, :, 0:lat_sze, 0:lon_sze]
-                #var[:, :, lat_sze:, 0:lon_sze] = src.variables[name][:, :, lat_sze:, 0:lon_sze]
-                #var[:, :, 0:lat_sze, lon_sze:] = src.variables[name][:, :, 0:lat_sze, lon_sze:]
-                #var[:, :, lat_sze:, lon_sze:] = src.variables[name][:, :, lat_sze:, lon_sze:]
-                var[:] = src.variables[name][:]
-            else:
-                var[:] = src.variables[name][:]
+            var[:] = src.variables[name][:]
 
     dst.close()
     src.close()
@@ -148,13 +136,13 @@ def test_s3_read_cfa():
     print nc_var.datatype
     print nc_var.size
     print type(nc_var)
-    print np.mean(nc_var[:])
+    print np.mean(nc_var[10:12,0,40:80,40:80])
 
     # load the original file and take the mean
     src_file = Dataset(WAH_NC4_DATASET_PATH)
     src_var = src_file.variables["field8"]
     print type(src_var)
-    print np.mean(nc_var[:])
+    print np.mean(src_var[10:12,0,40:80,40:80])
 
 
 if __name__ == "__main__":
@@ -162,5 +150,5 @@ if __name__ == "__main__":
     #test_file_open_dataset()
     #test_s3_write_dataset()
     #test_s3_open_not_netcdf()
-    #test_s3_split_dataset()
+    test_s3_split_dataset()
     test_s3_read_cfa()

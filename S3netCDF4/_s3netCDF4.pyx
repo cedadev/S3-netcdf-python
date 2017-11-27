@@ -472,20 +472,20 @@ class s3Variable(object):
     def __getitem__(self, elem):
         """Overload the [] operator for getting values from the netCDF variable"""
         # get the filled slices
-        subset_slices = fill_slices(self.shape, elem)
+        elem_slices = fill_slices(self.shape, elem)
         # get the partitions from the slice - created the subset of partitions
         subset_parts = []
         # determine which partitions overlap with the indices
         for p in self._cfa_var.partitions:
-            if partition_overlaps(p, subset_slices):
+            if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
 
         # create a memory mapped array in the cache for the output array
         mmap_name = self._init_params['s3_cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
 
-        # create the target shape from the subset_slices
+        # create the target shape from the elem slices
         subset_shape = []
-        for s in subset_slices:
+        for s in elem_slices:
             subset_shape.append((s.stop-s.start+1)/s.step)
         # create the target memory mapped array
         mmap_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))
@@ -504,14 +504,38 @@ class s3Variable(object):
                                           diskless=True, persist=False, memory=file_details.memory)
                 # get the variable
                 nc_var = nc_file.variables[part.subarray.ncvar]
-                # create the target slice from the location
+                # create the default source slice: this is the shape of the subarray
+                source_slice = []
+                for sl in part.subarray.shape:
+                    source_slice.append(CFASlice(0, sl, 1))
+                # create the target slice from the location and the passed in elements
+                # create the default slice first - we will modify this
                 target_slice = []
-                for d in part.location:
-                    target_slice.append(slice(d[0], d[1]+1, 1))   # +1 as CFA indices are inclusive whereas python are exclusive
-                # convert to tuple
-                target_slice = tuple(target_slice)
+                for pl in part.location:
+                    target_slice.append(CFASlice(pl[0], pl[1], 1))
+
+                # now modify the slice based on the elements passed in
+                py_source_slice = []
+                py_target_slice = []
+                for p in range(0, len(target_slice)):
+                    # adjust the end target_slice if we are taking a subset of the data
+                    if elem_slices[p].stop < target_slice[p].stop:
+                        source_slice[p].stop -= target_slice[p].stop - elem_slices[p].stop
+                        target_slice[p].stop = elem_slices[p].stop
+                    # adjust the target start and end for the sub_slice
+                    target_slice[p].start -= elem_slices[p].start
+                    target_slice[p].stop -= elem_slices[p].start - 1
+                    # check if the elem started within the location
+                    if target_slice[p].start < 0:
+                        # source_slice.start is absolute value of ts
+                        source_slice[p].start = -1 * target_slice[p].start
+                        # target start is 0
+                        target_slice[p].start = 0
+
+                    py_source_slice.append(source_slice[p].to_pyslice())
+                    py_target_slice.append(target_slice[p].to_pyslice())
                 # place the data in the memory mapped array
-                mmap_arr[target_slice] = nc_var[:]
+                mmap_arr[py_target_slice] = nc_var[py_source_slice]
             else:
                 # not in memory but has been streamed to disk - persist in the cache
                 nc_file = netCDF4.Dataset(file_details.filename, mode='r')
@@ -586,17 +610,6 @@ class s3Variable(object):
             source_slices = []
             for d in range(0, len(self._cfa_var.pmdimensions)):
                 source_slices.append(slice(part.location[d,0], part.location[d,1]+1, 1))
-            # convert to tuple
-            source_slices = tuple(source_slices)
-
-            # create the slices for the target
-            target_slices = []
-            for d in range(0, len(self._cfa_var.pmdimensions)):
-                target_slices.append(slice(subset_slices[d].start,
-                                         subset_slices[d].stop + 1,
-                                         subset_slices[d].step))
-            # convert to tuple
-            target_slices = tuple(target_slices)
 
             # copy the data in - still have to deal with the slices
             var[:] = data[source_slices]
