@@ -284,10 +284,10 @@ class s3Dataset(netCDF4.Dataset):
                         for p in self._cfa_variables[v]._cfa_var.partitions:
                             # filename is part of the subarray structure
                             # s3netCDFIO will handle the putting to s3 object store
-                            put_netCDF_file(p.subarray.file)
-                            # delete the file if it's in the cache
+                            # have to check that the file exists as when writing just parts of the file, it may not!
                             fname = base_dir + "/" + os.path.basename(p.subarray.file)
                             if os.path.exists(fname):
+                                put_netCDF_file(p.subarray.file)
                                 os.remove(fname)
 
             # if it's not a CFA file then just upload it.
