@@ -13,8 +13,8 @@ S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
 S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
 WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
-WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
-#WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
+#WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
+WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -120,7 +120,9 @@ def test_s3_split_dataset():
             var = dst.createVariable(name, variable.datatype, variable.dimensions)
             d = {k: src.variables[name].getncattr(k) for k in src.variables[name].ncattrs()}
             var.setncatts(d)
-            var[:] = src.variables[name][:]
+            # just write the first 10 timesteps to test subarray write
+            if len(src.variables[name].shape) > 0 and src.variables[name].shape[0] > 10:
+                var[:10] = src.variables[name][:10]
 
     dst.close()
     src.close()
@@ -136,13 +138,13 @@ def test_s3_read_cfa():
     print nc_var.datatype
     print nc_var.size
     print type(nc_var)
-    print np.mean(nc_var[10:12,0,40:80,40:80])
+    print np.mean(nc_var[0:10,0,40:80,40:80])
 
     # load the original file and take the mean
     src_file = Dataset(WAH_NC4_DATASET_PATH)
     src_var = src_file.variables["field8"]
     print type(src_var)
-    print np.mean(src_var[10:12,0,40:80,40:80])
+    print np.mean(src_var[0:10,0,40:80,40:80])
 
 
 if __name__ == "__main__":
@@ -150,5 +152,5 @@ if __name__ == "__main__":
     #test_file_open_dataset()
     #test_s3_write_dataset()
     #test_s3_open_not_netcdf()
-    test_s3_split_dataset()
+    #test_s3_split_dataset()
     test_s3_read_cfa()
