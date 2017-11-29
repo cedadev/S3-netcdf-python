@@ -16,6 +16,7 @@ from _s3Exceptions import *
 from _CFAClasses import *
 from _CFAFunctions import *
 from _s3Client import s3ClientConfig
+from psutil import virtual_memory
 
 import os
 from collections import OrderedDict
@@ -88,7 +89,8 @@ class s3Dataset(netCDF4.Dataset):
                         self._cfa_variables[v] = s3Variable(self.variables[v],
                                                             self._file_details.cfa_file,
                                                             self._file_details.cfa_file.cfa_vars[v],
-                                                            {'s3_cache_location' : self._s3_client_config['cache_location']})
+                                                            {'s3_cache_location' : self._s3_client_config['cache_location'],
+                                                             's3_max_file_size_for_memory' : self._s3_client_config['max_file_size_for_memory']})
             else:
                 self._file_details.cfa_file = None
 
@@ -274,19 +276,19 @@ class s3Dataset(netCDF4.Dataset):
                     put_netCDF_file(self._file_details.s3_uri)
                     # remove cached file
                     os.remove(self._file_details.filename)
-                # get the base directory where all the subarray files are held
-                base_dir = self._file_details.filename[:self._file_details.filename.rfind(".")]
-                # loop over the variables
-                for v in self._cfa_variables:
-                    # loop over the partitions
-                    for p in self._cfa_variables[v]._cfa_var.partitions:
-                        # filename is part of the subarray structure
-                        # s3netCDFIO will handle the putting to s3 object store
-                        put_netCDF_file(p.subarray.file)
-                        # delete the file if it's in the cache
-                        fname = base_dir + "/" + os.path.basename(p.subarray.file)
-                        if os.path.exists(fname):
-                            os.remove(fname)
+                    # get the base directory where all the subarray files are held
+                    base_dir = self._file_details.filename[:self._file_details.filename.rfind(".")]
+                    # loop over the variables
+                    for v in self._cfa_variables:
+                        # loop over the partitions
+                        for p in self._cfa_variables[v]._cfa_var.partitions:
+                            # filename is part of the subarray structure
+                            # s3netCDFIO will handle the putting to s3 object store
+                            put_netCDF_file(p.subarray.file)
+                            # delete the file if it's in the cache
+                            fname = base_dir + "/" + os.path.basename(p.subarray.file)
+                            if os.path.exists(fname):
+                                os.remove(fname)
 
             # if it's not a CFA file then just upload it.
             else:
@@ -480,15 +482,27 @@ class s3Variable(object):
             if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
 
-        # create a memory mapped array in the cache for the output array
-        mmap_name = self._init_params['s3_cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
-
-        # create the target shape from the elem slices
+        # create the target shape from the elem slices and the size (number of elements)
+        subset_size = 1
         subset_shape = []
         for s in elem_slices:
-            subset_shape.append((s.stop-s.start+1)/s.step)
-        # create the target memory mapped array
-        mmap_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))
+            dim_size = (s.stop-s.start+1)/s.step
+            subset_shape.append(dim_size)
+            subset_size *= dim_size
+
+        # calculate the size (in bytes) of the subset of the array
+        subset_size *= self._nc_var.dtype.itemsize
+
+        # create the target array
+        # this will be a memory mapped array if it is greater than the user_config["max_file_size_for_memory"] or
+        # the available memory
+        if subset_size > self._init_params['s3_max_file_size_for_memory'] or subset_size > virtual_memory().available:
+            # create a memory mapped array in the cache for the output array
+            mmap_name = self._init_params['s3_cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
+            tgt_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))
+        else:
+            # create a normal array with no memory map
+            tgt_arr = numpy.zeros(subset_shape, dtype=self._nc_var.dtype)
         # loop over the subset partitions
         for part in subset_parts:
             # get the filename, either in the cache for s3 files or on disk for POSIX
@@ -502,55 +516,28 @@ class s3Variable(object):
                 # create the netCDF4 dataset from the data, using the temp_file
                 nc_file = netCDF4.Dataset(file_details.filename, mode='r',
                                           diskless=True, persist=False, memory=file_details.memory)
-                # get the variable
-                nc_var = nc_file.variables[part.subarray.ncvar]
-                # create the default source slice: this is the shape of the subarray
-                source_slice = []
-                for sl in part.subarray.shape:
-                    source_slice.append(CFASlice(0, sl, 1))
-                # create the target slice from the location and the passed in elements
-                # create the default slice first - we will modify this
-                target_slice = []
-                for pl in part.location:
-                    target_slice.append(CFASlice(pl[0], pl[1], 1))
-
-                # now modify the slice based on the elements passed in
-                py_source_slice = []
-                py_target_slice = []
-                for p in range(0, len(target_slice)):
-                    # adjust the end target_slice if we are taking a subset of the data
-                    if elem_slices[p].stop < target_slice[p].stop:
-                        source_slice[p].stop -= target_slice[p].stop - elem_slices[p].stop
-                        target_slice[p].stop = elem_slices[p].stop
-                    # adjust the target start and end for the sub_slice
-                    target_slice[p].start -= elem_slices[p].start
-                    target_slice[p].stop -= elem_slices[p].start - 1
-                    # check if the elem started within the location
-                    if target_slice[p].start < 0:
-                        # source_slice.start is absolute value of ts
-                        source_slice[p].start = -1 * target_slice[p].start
-                        # target start is 0
-                        target_slice[p].start = 0
-
-                    py_source_slice.append(source_slice[p].to_pyslice())
-                    py_target_slice.append(target_slice[p].to_pyslice())
-                # place the data in the memory mapped array
-                mmap_arr[py_target_slice] = nc_var[py_source_slice]
             else:
                 # not in memory but has been streamed to disk - persist in the cache
                 nc_file = netCDF4.Dataset(file_details.filename, mode='r')
-        return mmap_arr
+
+            # get the source and target slices - use the filled slices from above
+            py_source_slice, py_target_slice = get_source_target_slices(part, elem_slices)
+            # get the variable
+            nc_var = nc_file.variables[part.subarray.ncvar]
+            # place the data in the memory mapped array
+            tgt_arr[py_target_slice] = nc_var[py_source_slice]
+        return tgt_arr
 
 
     def __setitem__(self, elem, data):
         """Overload the [] operator for setting values for the netCDF variable"""
         # get the filled slices
-        subset_slices = fill_slices(self.shape, elem)
+        elem_slices = fill_slices(self.shape, elem)
         # get the partitions from the slice - created the subset of partitions
         subset_parts = []
         # determine which partitions overlap with the indices
         for p in self._cfa_var.partitions:
-            if partition_overlaps(p, subset_slices):
+            if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
 
         # loop over the subset partitions
@@ -566,11 +553,10 @@ class s3Variable(object):
                 # first create the destination directory, if it doesn't exist
                 dest_dir = os.path.dirname(file_details.filename)
                 if not os.path.isdir(dest_dir):
-                    os.makedirs(os.path.dirname(dest_dir))
+                    os.makedirs(dest_dir)
 
                 # create the netCDF file
                 ncfile = netCDF4.Dataset(file_details.filename, 'w', format=self._cfa_file.format)
-
                 # create the dimensions
                 for d in range(0, len(self._cfa_var.pmdimensions)):
                     # get the dimension details from the _cfa_var
@@ -605,13 +591,8 @@ class s3Variable(object):
 
             # now copy the data in.  We have to decide where to copy this fragment of the data to (target)
             # and from where in the original data we want to copy it (source)
-
-            # create the slices for the source
-            source_slices = []
-            for d in range(0, len(self._cfa_var.pmdimensions)):
-                source_slices.append(slice(part.location[d,0], part.location[d,1]+1, 1))
-
-            # copy the data in - still have to deal with the slices
-            var[:] = data[source_slices]
-
+            # get the source and target slices - these are flipped in relation to __getitem__
+            py_target_slice, py_source_slice = get_source_target_slices(part, elem_slices)
+            # copy the data in
+            var[py_target_slice] = data[py_source_slice]
             ncfile.close()
