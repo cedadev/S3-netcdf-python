@@ -23,7 +23,7 @@ def urljoin(*args):
     """
     url = "/".join(map(lambda x: str(x).rstrip('/'), args))
     return url
-
+    
 
 class s3ClientConfig(object):
     """Class to read in config file and interpret it"""
@@ -239,8 +239,8 @@ class s3Client(object):
             # Does not exist so we have to download the file
             # first create the destination directory, if it doesn't exist
             dest_dir = os.path.dirname(dest_path)
-            if not os.path.exists(dest_dir):
-                os.makedirs(os.path.dirname(dest_dir))
+            if not os.path.isdir(dest_dir):
+                os.makedirs(dest_dir)
             # now try downloading the file
             try:
                 self._s3_client.fget_object(bucket_name, object_name, dest_path)
