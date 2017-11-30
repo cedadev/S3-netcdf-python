@@ -270,11 +270,14 @@ def partition_overlaps(partition, slices):
     for i in range(0, len(partition.location)):
         # overlap if the slice start index lies between the start and end index for this partition
         # OR if the slice end index lies between the start and end index for this partition
+        # OR if the partition is contained entirely within the slice
         # get the slice
         s = slices[i]
-        start_overlaps = (s.start >= partition.location[i,0]) & (s.start <= (partition.location[i,1]))
-        end_overlaps = (s.stop >= partition.location[i,0]) & (s.stop <= (partition.location[i,1]))
-        overlaps &= (start_overlaps | end_overlaps)
+        p = partition.location[i]
+        start_overlaps = (s.start >= p[0]) & (s.start <= p[1])
+        end_overlaps = (s.stop >= p[0]) & (s.stop <= p[1])
+        partition_in = (p[0] >= s.start) & (p[1] <= s.stop)
+        overlaps &= (start_overlaps | end_overlaps | partition_in)
     return overlaps
 
 

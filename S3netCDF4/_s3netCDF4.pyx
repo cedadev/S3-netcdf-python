@@ -539,7 +539,6 @@ class s3Variable(object):
         for p in self._cfa_var.partitions:
             if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
-
         # loop over the subset partitions
         for part in subset_parts:
             # get the filename, either in the cache for s3 files or on disk for POSIX
