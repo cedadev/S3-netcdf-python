@@ -13,17 +13,18 @@
    +-------------------------------+                +-------------------------------+
    | CFAFile                       |        +------>| CFADim                        |
    +-------------------------------+        |       +-------------------------------+
-   | file_name       string        |        |       | dim_name         string       |
-   | nc_dims         [CFADim]      |--------+       | metadata         {}           |
-   | global_metadata {}            |                | values           numpy[float] |
-   | cfa_metadata    {}            |                +-------------------------------+
-   | variables       [CFAVariable] |--------+
+   | cfa_vars        {CFAVariable} |        |       | dim_name         string       |
+   | cfa_dims        {CFADim}      |--------+       | metadata         {}           |
+   | format          string        |                | dim_len          [int]        |
+   | cfa_metadata    {}            |                | values           [float]      |
+   |                               |--------+       +-------------------------------+
    +-------------------------------+        |
                                             |       +-------------------------------+
                                             +------>| CFAVariable                   |
                                                     +-------------------------------+
                                                     | var_name       string         |
                                                     | metadata       {}             |
+                                                    | cf_role        string         |
                                                     | pmdimensions   [string]       |
                                                     | pmshape        [int]          |
                                                     | base           string         |
@@ -45,94 +46,134 @@
                                                     | shape          [int]          |
                                                     +-------------------------------+
 """
+
 import numpy as np
+cimport numpy as np
 import json
-from collections import OrderedDict
+
 
 class CFAException(BaseException):
     pass
 
 
-class CFAFile:
+cdef class CFAFile:
     """
        Class containing details of a CFAFile (master array)
     """
-    def __init__(self, nc_dims = [], global_metadata = {},
-                       cfa_metadata = {}, variables = OrderedDict()):
+
+    cdef public dict cfa_dims
+    cdef public dict cfa_metadata
+    cdef public dict cfa_vars
+    cdef public basestring format
+
+    def __init__(self, cfa_dims = {},
+                 cfa_metadata = {}, cfa_vars = {},
+                 format="NETCDF4"):
         """Initialise the CFAFile class"""
-        self.nc_dims = nc_dims
-        self.global_metadata = global_metadata
-        self.cfa_metadata = cfa_metadata
-        self.variables = variables
+        self.cfa_dims = dict(cfa_dims)
+        self.cfa_metadata = dict(cfa_metadata)
+        self.cfa_vars = dict(cfa_vars)
+        self.format = format
 
 
-    def Parse(self, nc_dataset):
-        """ Parse a netCDF dataset to create the CFA class structures"""
-        # first get the global metadata
-        self.global_metadata = {k: nc_dataset.getncattr(k) for k in nc_dataset.ncattrs()}
+    cpdef parse(self, nc_dataset):
+        """Parse a netCDF dataset to create the CFA class structures"""
         # check this is a CFA file
-        if not "Conventions" in self.global_metadata:
+        if not "Conventions" in nc_dataset.ncattrs():
             raise CFAException("Not a CFA file.")
-        if not "CFA" in self.global_metadata["Conventions"]:
+        if not "CFA" in nc_dataset.getncattr("Conventions"):
             raise CFAException("Not a CFA file.")
 
         # next parse the dimensions
         for d in nc_dataset.dimensions:
             # get the dimension's associated variable
             dim_var = nc_dataset.variables[d]
-            # get the attributes as a dictionary
-            dim_meta = {k: dim_var.getncattr(k) for k in dim_var.ncattrs()}
-            # create the dimension and append to list of nc_dims
-            self.nc_dims.append(CFADim(dim_name=d, metadata=dim_meta,
-                                       type=dim_var.dtype, values=dim_var[:]))
+            # get the metadata
+            md = {k: dim_var.getncattr(k) for k in dim_var.ncattrs()}
+            # create the dimension and append to list of cfa_dims
+            self.cfa_dims[d] = CFADim(dim_name=d, dim_len=dim_var.shape[0], metadata = md)
 
         # next get the variables
-        self.variables = OrderedDict()
+        self.cfa_vars = {}
         for v in nc_dataset.variables:
             # check that this variable has a cf_role
             if "cf_role" in nc_dataset.variables[v].ncattrs():
                 # create and append the CFAVariable
                 cfa_var = CFAVariable()
-                cfa_var.Parse(nc_dataset.variables[v])
-                self.variables[v] = cfa_var
+                cfa_var.parse(nc_dataset.variables[v])
+                self.cfa_vars[v] = cfa_var
 
 
-class CFADim:
+cdef class CFADim:
     """
        Class containing details of a dimension in a CFAFile
     """
-    def __init__(self, dim_name = None, metadata = {}, type = None, values = []):
+
+    cdef public basestring dim_name
+    cdef public int dim_len
+    cdef public np.ndarray values
+    cdef public dict metadata
+
+    def __init__(self, dim_name = None, dim_len = None, metadata = {}):
         """Initialise the CFADim object"""
         self.dim_name = dim_name
-        self.metadata = metadata
-        self.values = np.array(values, type)
+        if dim_len is None:
+            self.dim_len = -1
+        else:
+            self.dim_len = dim_len
+        self.values = np.array([], dtype='f')
+        self.metadata = dict(metadata)
 
 
-class CFAVariable:
+    cpdef dict(self):
+        """Return a dictionary representation of the CFADim"""
+        return {"dim_name" : self.dim_name,
+                "dim_len"  : self.dim_len,
+                "values"   : self.values,
+                "metadata" : self.metadata}
+
+
+    cpdef setValues(self, values = None, dtype = 'f'):
+        """Set the values of the dimension"""
+        if values != None:
+            self.values = np.array(values, dtype=dtype)
+
+
+cdef class CFAVariable:
     """
        Class containing details of the variables in a CFAFile
     """
-    def __init__(self, var_name = "", metadata = {},
-                       cf_role="", cfa_dimensions = [],
-                       pmdimensions = [], pmshape = [],
-                       base = "", partitions = []):
+
+    cdef public basestring var_name
+    cdef public dict metadata
+    cdef public basestring cf_role
+    cdef public list cfa_dimensions
+    cdef public list pmdimensions
+    cdef public np.ndarray pmshape
+    cdef public basestring base
+    cdef public list partitions
+
+    def __init__(self, var_name = "",
+                 cf_role = "cfa_variable", cfa_dimensions = [],
+                 pmdimensions = [], pmshape = [],
+                 base = "", partitions = []):
         """Initialise the CFAVariable object"""
         self.var_name = var_name
-        self.metadata = metadata
         self.cf_role = cf_role
-        self.cfa_dimensions = cfa_dimensions
-        self.pmdimensions = pmdimensions
-        self.pmshape = pmshape
+        # no point in creating empty data
+        if cfa_dimensions != []:
+            self.cfa_dimensions = list(cfa_dimensions)
+        if pmdimensions != []:
+            self.pmdimensions = list(pmdimensions)
+        if pmshape != []:
+            self.pmshape = np.array(pmshape, dtype='i')
         self.base = base
-        self.partitions = partitions
+        self.partitions = list(partitions)
 
-    def Parse(self, nc_var):
+
+    cpdef parse(self, nc_var):
         """Parse a netCDF variable that contains CFA metadata"""
         self.var_name = nc_var.name
-
-        # Parse the metadata, rather than just copying it
-        # We will interpret the cfa metadata but just copy the other metadata
-        self.metadata = {}
 
         # check that it is a CFAVariable - i.e. the metadata is correctly defined
         nc_var_atts = nc_var.ncattrs()
@@ -161,27 +202,48 @@ class CFAVariable:
                 if "base" in cfa_json:
                     self.base = cfa_json["base"]
                 if "pmshape" in cfa_json:
-                    self.pmshape = np.array(cfa_json["pmshape"])
+                    self.pmshape = np.array(cfa_json["pmshape"], dtype='i')
                 if "pmdimensions" in cfa_json:
-                    self.pmdimensions = np.array(cfa_json["pmdimensions"])
+                    self.pmdimensions = cfa_json["pmdimensions"]
                 for p in cfa_json["Partitions"]:
                     cfa_part = CFAPartition()
-                    cfa_part.Parse(p)
+                    cfa_part.parse(p)
                     self.partitions.append(cfa_part)
-            else:
-                self.metadata[k] = nc_var.getncattr(k)
 
-class CFAPartition:
+
+    cpdef dict(self):
+        """Return the a dictionary representation of the CFAVariable so it can be
+           added to the metadata for the variable later."""
+        cfa_array_dict = {}
+        if self.base != "":
+            cfa_array_dict["base"] = self.base
+        if self.pmshape != []:
+            cfa_array_dict["pmshape"] = self.pmshape.tolist()
+        if self.pmdimensions != []:
+            cfa_array_dict["pmdimensions"] = self.pmdimensions
+        cfa_array_dict["Partitions"] = [p.dict() for p in self.partitions]
+        return {"cf_role"        : self.cf_role,
+                "cf_dimensions"  : " ".join(self.cfa_dimensions),
+                "cfa_array"      : cfa_array_dict}
+
+
+cdef class CFAPartition:
     """
        Class containing details of the partitions in a CFAVariable
     """
+
+    cdef public np.ndarray index
+    cdef public np.ndarray location
+    cdef public CFASubarray subarray
+
     def __init__(self, index = [], location = [], subarray = None):
         """Initialise the CFAPartition object"""
-        self.index = np.array(index, 'i')
-        self.location = np.array(location, 'i')
+        self.index = np.array(index, dtype='i')
+        self.location = np.array(location, dtype='i')
         self.subarray = subarray
 
-    def Parse(self, part):
+
+    cpdef parse(self, part):
         """Parse a partition definition from the metadata."""
         # Check that the "subarray" item exists in the metadata
         if not "subarray" in part:
@@ -190,25 +252,39 @@ class CFAPartition:
         if "index" in part:
             self.index = np.array(part["index"], 'i')
         if "location" in part:
-            self.index = np.array(part["location"], 'i')
+            self.location = np.array(part["location"], 'i')
         cfa_subarray = CFASubarray()
-        cfa_subarray.Parse(part["subarray"])
+        cfa_subarray.parse(part["subarray"])
         self.subarray = cfa_subarray
 
 
-class CFASubarray:
+    cpdef dict(self):
+        """Return the partition represented as a dictionary so it can be
+           converted to a JSON string later."""
+        return {"index"    : self.index.tolist(),
+                "location" : self.location.tolist(),
+                "subarray" : self.subarray.dict()}
+
+
+cdef class CFASubarray:
     """
        Class containing details of a subarray in a CFAPartition
     """
+
+    cdef public basestring ncvar
+    cdef public basestring file
+    cdef public basestring format
+    cdef public np.ndarray shape
+
     def __init__(self, ncvar = "", file = "", format = "", shape = []):
         """Initialise the CFASubarray object"""
         self.ncvar = ncvar
         self.file = file
         self.format = format
-        self.shape = np.array(shape, 'i')
+        self.shape = np.array(shape, dtype='i')
 
 
-    def Parse(self, subarray):
+    cpdef parse(self, subarray):
         """Parse the cfa_subarray member of the Partition metadata"""
         # the only item which has to be present is shape
         if not "shape" in subarray:
@@ -220,3 +296,34 @@ class CFASubarray:
         if "format" in subarray:
             self.format = subarray["format"]
         self.shape = np.array(subarray["shape"], 'i')
+
+
+    def dict(self):
+        """Return a string containing the JSON representation of the CFASubarray"""
+        return {"ncvar"  : self.ncvar,
+                "file"   : self.file,
+                "format" : self.format,
+                "shape"  : self.shape.tolist()}
+
+
+cdef class CFASlice:
+    """
+       Class containing a read / write slice and conversion to Python slice
+    """
+    cdef public int start
+    cdef public int stop
+    cdef public int step
+
+    def __init__(self, start=0, stop=-1, step=1):
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def to_pyslice(self):
+        return slice(self.start, self.stop, self.step)
+
+    def __str__(self):
+        return "[{}, {}, {}]".format(self.start, self.stop, self.step)
+
+    def __repr__(self):
+        return "[{}, {}, {}]".format(self.start, self.stop, self.step)

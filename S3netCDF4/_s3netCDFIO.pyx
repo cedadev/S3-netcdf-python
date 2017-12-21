@@ -8,15 +8,22 @@ Date:   07/09/2017
 
 from _s3Client import *
 from _s3Exceptions import *
-from _s3WriteCFA import *
-import netCDF4._netCDF4 as netCDF4
+from _CFAClasses import *
 
-class s3netCDFFile:
+cdef class s3netCDFFile:
     """
        Class to return details of a netCDF file that may be on a POSIX file system, on S3 storage then
          streamed to a POSIX file cache or streamed from S3 directly into memory.
     """
-    def __init__(self, filename = "", s3_uri = "", filemode = 'r', memory = None):
+
+    cdef public basestring filename
+    cdef public basestring s3_uri
+    cdef public basestring filemode
+    cdef public basestring format
+    cdef public basestring memory
+    cdef public cfa_file
+
+    def __init__(self, filename = "", s3_uri = "", filemode = 'r', memory = ""):
         """
         :param filename: the original filename on disk (or openDAP URI) or the filename of the cached file - i.e. where
                          the S3 file is streamed (for 'r' and 'a' filemodes) or created (for 'w' filemodes).
@@ -36,10 +43,19 @@ class s3netCDFFile:
         return "s3netCDFFile"
 
     def __str__(self):
-        return "<s3netCDFFile> (filename='"+ self.filename +\
+        ret_str = "<s3netCDFFile> (filename='"+ self.filename +\
                                 "', s3_uri='" + self.s3_uri +\
-                                "', filemode='" + self.filemode +\
-                                "', memory=" + str(self.memory) + ")"
+                                "', filemode='" + self.filemode
+        if self.memory == "":
+            ret_str += "', memory=None'"
+        else:
+            ret_str += "', memory=allocated'"
+
+        if self.cfa_file:
+            ret_str += "', cfa_file=present'"
+
+        ret_str += ")"
+        return ret_str
 
 
 def _get_netCDF_filetype(s3_client, bucket_name, object_name):
@@ -52,7 +68,7 @@ def _get_netCDF_filetype(s3_client, bucket_name, object_name):
        be created with the same type.
 
        The possible types are:
-       `NETCDF3_CLASSIC`, `NETCDF4`,`NETCDF4_CLASSIC`, `NETCDF3_64BIT_OFFSET` or `NETCDF3_64BIT_DATA
+       `NETCDF3_CLASSIC`, `NETCDF4`,`NETCDF4_CLASSIC`, `NETCDF3_64BIT_OFFSET` or `NETCDF3_64BIT_DATA`
        or
        `NOT_NETCDF` if it is not a netCDF file - raise an exception on that
 
