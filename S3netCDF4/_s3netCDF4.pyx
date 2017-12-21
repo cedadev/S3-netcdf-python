@@ -11,7 +11,7 @@ Date:   10/07/2017
 # This module inherits from the standard netCDF4 implementation
 # import as UniData netCDF4 to avoid confusion with the S3 module
 import netCDF4._netCDF4 as netCDF4
-from _s3netCDFIO import get_netCDF_file_details, put_netCDF_file
+from _s3netCDFIO import get_netCDF_file_details, put_netCDF_file, put_CFA_file
 from _s3Exceptions import *
 from _CFAClasses import *
 from _CFAFunctions import *
@@ -35,7 +35,7 @@ class s3Dataset(netCDF4.Dataset):
        read and write of netCDF file to an object store accessed via an AWS S3 HTTP API.
     """
 
-    def __init__(self, filename, mode='r', clobber=True, format='NETCDF4',
+    def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                  diskless=False, persist=False, keepweakref=False, memory=None,
                  **kwargs):
         """
@@ -252,7 +252,6 @@ class s3Dataset(netCDF4.Dataset):
 
     def close(self):
         """Close the netCDF file.  If it is a S3 file and the mode is write then upload to the storage."""
-
         if (self._file_details.filemode == 'w' or
             self._file_details.filemode == "r+" or
             self._file_details.filemode == 'a'):

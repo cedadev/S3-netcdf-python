@@ -209,3 +209,63 @@ def put_netCDF_file(filename):
 
         # write the file from the cache to the object store
         s3_client.write(s3_bucket_name, s3_object_name)
+
+
+def put_CFA_file(filename, max_file_size=-1, format="NETCDF4"):
+    """Write the CFA file and its constituent CF-netCDF files to object store if the filename contains s3://
+       Otherwise write the CFA file (and CF-netCDF files) directly to disk."""
+    if "s3://" in filename:
+        # get the endpoint, bucket name, object name
+        s3_ep, s3_bucket_name, s3_object_name = get_endpoint_bucket_object(filename)
+
+        # create the s3 client
+        s3_client = s3Client(s3_ep)
+
+        # check / create the bucket
+        s3_client.create_bucket(s3_bucket_name)
+
+        # get the max_file_size from the config file if no overriding size is set
+        if max_file_size == -1:
+            max_file_size = s3_client.get_max_object_size()
+
+        # write the cfa master file to the cache
+        cache_filename = s3_client.get_cachefile_path(s3_bucket_name, s3_object_name)
+
+        # open the file for reading
+        nc_file = netCDF4.Dataset(cache_filename, mode='r')
+
+        # initialize the cfa object and create the master array
+        cfa_ma = CFAfile(nc_file, cache_filename, max_file_size, s3_url=filename)
+
+        # write the master array into the cache
+        cfa_ma.write(format = format)
+
+        # manipulate the object name
+        cfa_object_name = s3_object_name.replace(".nc", ".nca")
+        # upload the file
+        s3_client.write(s3_bucket_name, cfa_object_name)
+
+        # now write each subfile and upload
+        for varnum in range(0, cfa_ma.get_number_of_variables()):
+            for sa in range(0, cfa_ma.get_number_of_subarrays(varnum)):
+                sa_filename = cfa_ma.write_subarray(varnum, sa, format = format)
+                sa_ep, sa_bucket_name, sa_object = get_endpoint_bucket_object(sa_filename)
+                s3_client.write(sa_bucket_name, sa_object)
+    else:
+        # if max_file size is -1 (default) then reset it to 1MB
+        if max_file_size == -1:
+            max_file_size = 1024 * 1024
+        # open the file for reading
+        nc_file = netCDF4.Dataset(filename, mode='r')
+
+        # initialize the cfa object and create the master array
+        cfa_ma = CFAfile(nc_file, filename, max_file_size)
+
+        # write the master array, set the base to be the filename(-.nc in write function)
+        base_name = os.path.dirname(filename)
+        cfa_ma.write(base_path = base_name, format = format)
+
+        # now write each subfile
+        for varnum in range(0, cfa_ma.get_number_of_variables()):
+            for sa in range(0, cfa_ma.get_number_of_subarrays(varnum)):
+                sa_filename = cfa_ma.write_subarray(varnum, sa, format = format)

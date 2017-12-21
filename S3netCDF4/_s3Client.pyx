@@ -289,7 +289,7 @@ class s3Client(object):
                 self._s3_client.make_bucket(bucket_name)
             except BaseException:
                 raise s3IOException("Error: " + full_url + " cannot create bucket.")
-
+              
 
     def write(self, bucket_name, object_name):
         """
