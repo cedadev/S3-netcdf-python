@@ -87,9 +87,11 @@ This can be copied to the user's home directory, and the template renamed to `~/
 * `cache_location` contains the location of the local disk cache for storing files that have been downloaded from the S3 object store.  See [Caching](#caching) section below.
 * `max_cache_size` the maximum amount of disk space dedicated to the local disk cache.
 * `max_object_size_for_memory` S3netCDF4 will try to stream an object into memory, rather than caching it to disk.  This variable controls the maximum size an object can be to be streamed into memory.  S3netCDF4 will also query the available memory and cache to disk if an object is bigger than the available memory.
-* `max_object_size` this controls the maximum size the sub-array objects can be when writing CFA files.  See [Writing files](#writing_files) section.
+* `max_object_size` this controls the maximum size the **sub-array** objects can be when writing CFA files.  See [Writing files](#writing_files) section.
 * `read_threads` controls the number of parallel threads that will be used when reading objects from the S3 object store.
 * `write_threads` controls the number of parallel threads that will be user when writing objects to the S3 object store.
+
+*Note that sizes can be expressed in units other than bytes by suffixing the size with a magnitude identifier:, kilobytes (`kB`), megabytes (`MB`), gigabytes (`GB`), terabytes (`TB`), exabytes (`EB`), zettabytes (`ZB`) or yottabytes (`YB`).*
 
 [[Top]](#contents)
 
@@ -238,10 +240,59 @@ On an S3 storage system, the **master-array** directory will form part of the *p
 
 ### Writing field data
 
-For netCDF files with `format=CFA3` or `format=CFA4` specified in the
+For netCDF files with `format=netCDF3` or `format=netCDF4`, the variable is created and field data is written to the file (as missing values) when `createVariable` is called on the `Dataset` object.  Calls to the `[]` operator (i.e. slicing the array) will write data to the variable and to the file when the operator is called.  This is the same behaviour as netCDF4-python. If a S3 URI is specified (filepath starts with `s3://`) then the file is opened or created in the local cache.
+
+For netCDF files with `format=CFA3` or `format=CFA4` specified in the `Dataset` constructor, only the **master-array** file is written to when `createDimension`, `createVariable` etc. are called on the `Dataset` object.  When `createVariable` is called, a scalar field variable (i.e. with no dimensions) is created, the **partition-matrix** is calculated (see [File splitting algorithm](#file-splitting-algorithm)) and written to the scalar field variable.  The **sub-array** files are only created when the `[]` operator is called on the `Variable` object return from the `Dataset.createVariable` method.  This operator is implemented in S3netCDF as the `__setitem__` member function of the `s3Variable` class, and corresponds to slicing the array.
+
+Writing field data to the **sub-array** file, via `__setitem__` consists of five operations:
+
+1. Determining which of the **sub-arrays** overlap with the slice.  This is currently done via a rectangle overlapping method and a linear search through all **partitions** for the variable.
+
+2. Open or create the file for the **sub-array** according to the filepath or URI in the **partition** information.  If a S3 URI is specified (filepath starts with `s3://`) then the file is opened or created in the local cache, and will be uploaded when `.close` is called on the `Dataset`.  If the file already exists then it will be opened in append mode (`r+`), otherwise it will be opened in create mode (`w+`)
+
+3. In create mode (`w+`) the dimensions and variable are created for the **sub-array** file, and the metadata is also written.
+
+4. Calculate the source and target slices.  This calculates the mapping between the indices in the **master-array** and each **sub-array**.  This is complicated by allowing the user to choose any slice for the **master-array** and so this must be correctly translated to the **sub-array** indices.
+
+5. Copy the data from the source slice to the target slice.
+
+For those files that have an S3 URI, uploading to S3 object storage is performed when `.close()` is called on the `Dataset`.
 
 [[Top]](#contents)
 
 ### File splitting algorithm
+
+To split the **master-array** into it's constituent **sub-arrays** a method for splitting a large netCDF file into smaller netCDF files is used.  The high-level algorithm is:
+
+1. Split the field variables so that there is one field variable per file.  netCDF allows multiple field variables in a single file, so this is an obvious and easy way of partitioning the file.  Note that this only splits the field variables up, the dimension variables all remain in the **master-array** file.
+
+2. For each field variable file, split along the `time`, `latitude` or `longitude` dimensions.  Note that, in netCDF files, the order of the dimensions is arbitrary, e.g. the order could be `[time, latitide, longitude]` or `[longitude, latitude, time]` or even `[latitude, time, longitude]`.  S3netCDF4 uses the metadata and name for each dimension variable to determine the order of the dimensions so that it can split them correctly.  Note that any other dimension (`height` or `z`) will always have length of 1, i.e. the dimension will be split into a number of fields equal to its length.
+
+The maximum size of an object (a **sub-array file**) is given in the `.s3nc4.json` config file by the `max_object_size` key / value pair.  To determine the most optimal number of splits for the `time`, `latitude` or `longitude` dimensions, while still staying under this maximum size constraint, two use cases are considered:
+
+1. The user wishes to read all the timesteps for a single latitude-longitude point of data.
+2. The user wishes to read all latitude-longitude points of the data for a single timestep.
+
+For case 1, the optimal solution would be to split the **master-array** into **sub-arrays** that have length 1 for the `longitude` and `latitude` dimension and a length equal to the number of timesteps for the `time` dimension.  For case 2, the optimal solution would be to not split the `longitude` and `latitude` dimensions but split each timestep so that the length of the `time` dimension is 1.  However, both of these cases have the worst case scenario for the other use case.  
+
+Balancing the number of operations needed to perform both of these use cases, while still staying under the `max_object_size` leads to an optimisation problem where the following two equalities must be balanced:
+
+1. USE CASE<sub>1</sub> = n<sub>T</sub> / d<sub>T</sub>
+2. USE CASE<sub>2</sub> = n<sub>lat</sub> / d<sub>lat</sub> **X** n<sub>lon</sub> / d<sub>lon</sub>
+
+where n<sub>T</sub> is the length of the `time` dimension and d<sub>T</sub> is the number of splits along the `time` dimension.  n<sub>lat</sub> is the length of the `latitude` dimension and d<sub>lat</sub> the number of splits along the `latitude` dimension.  n<sub>lon</sub> is the length of the `longitude` dimension and d<sub>lon</sub> the number of splits along the `longitude dimension`.
+
+The following algorithm is used:
+* Calculate the current object size = n<sub>T</sub> / d<sub>T</sub> **X** n<sub>lat</sub> / d<sub>lat</sub> **X** n<sub>lon</sub> / d<sub>lon</sub>
+* **while** this is > than the `max_object_size`, split a dimension:
+  * **if** d<sub>lat</sub> **X** d<sub>lon</sub> <= d<sub>T</sub>:
+    * **if** d<sub>lat</sub> <= d<sub>lon</sub>:
+        split latitude dimension again: d<sub>lat</sub> += 1
+    * **else:**
+        split longitude dimension again: d<sub>lon</sub> += 1
+  * **else:**
+    split the time dimension again: d<sub>T</sub> += 1
+
+Using this simple divide and conquer algorithm ensures the `max_object_size` constraint is met and the use cases require an equal number of operations.
 
 [[Top]](#contents)
