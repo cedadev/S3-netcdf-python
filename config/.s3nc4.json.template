@@ -19,6 +19,7 @@
 	"cache_location": "{{ user_cache_location }}",
 	"max_cache_size": "{{ user_cache_size }}",
 	"max_object_size_for_memory": "{{ user_max_object_size_for_memory }}",
-	"read_threads": "{{ number_of_read_threads }}",
+	"max_object_size" : "{{ user_max_object_size }}",
+	"read_threads" : "{{ number_of_read_threads }}",
 	"write_threads": "{{ number_of_write_threads }}"
 }
