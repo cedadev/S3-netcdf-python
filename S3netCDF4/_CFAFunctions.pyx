@@ -55,7 +55,7 @@ def _get_axis_types(dataset, dimensions):
     return axis_types
 
 
-def _get_linear_operations(c_subarray_shape, axis_types):
+def _get_linear_operations(c_subarray_divs, axis_types):
     """Get the number of operations required to read one spatial point for every timestep through
        the dataset.
        This is equal to: number of subarrays in the T axis."""
@@ -70,17 +70,17 @@ def _get_linear_operations(c_subarray_shape, axis_types):
 
     # calculate number of operations
     if t_ax != -1:
-        return c_subarray_shape[t_ax]
+        return c_subarray_divs[t_ax]
     else:
         # otherwise return -1
         return -1
 
 
-def _get_field_operations(c_subarray_shape, axis_types):
+def _get_field_operations(c_subarray_divs, axis_types):
     """Get the number of operations required to read one 2D field of data at a particular timestep
        through the dataset.
-       This is equal to: (X dimension / subarrays in the X axis) *
-                         (Y dimension / subarrays in the Y axis)
+       This is equal to: (subarrays in the X axis) *
+                         (subarrays in the Y axis)
     """
     # get the X and Y axes, if they exists
     x_ax = -1
@@ -98,32 +98,32 @@ def _get_field_operations(c_subarray_shape, axis_types):
 
     # logic optimised
     if not (x_ax == -1 or y_ax == -1):
-        n_ops = c_subarray_shape[x_ax] * c_subarray_shape[y_ax]
+        n_ops = c_subarray_divs[x_ax] * c_subarray_divs[y_ax]
     elif y_ax != -1:
-        n_ops = c_subarray_shape[y_ax]
+        n_ops = c_subarray_divs[y_ax]
     elif x_ax != -1:
-        n_ops = c_subarray_shape[x_ax]
+        n_ops = c_subarray_divs[x_ax]
     else:
         n_ops = -1
 
     return n_ops
 
 
-def _subdivide_array(var_shape, c_subarray_shape, axis_types, permitted_axes=["T"]):
+def _subdivide_array(var_shape, c_subarray_divs, axis_types, permitted_axes=["T"]):
     # calculate the number of elements per sub for the linear axis types
     n_per_subf = numpy.zeros((len(var_shape),),'i')
     for i in range(0, len(var_shape)):
         if axis_types[i] not in permitted_axes:
             n_per_subf[i] = int(1e6)
         # check that we are not going to subdivide more than the axis length!
-        elif c_subarray_shape[i] >= var_shape[i]:
+    elif c_subarray_divs[i] >= var_shape[i]:
             n_per_subf[i] = int(1e6)
         else:
-            n_per_subf[i] = c_subarray_shape[i]
+            n_per_subf[i] = c_subarray_divs[i]
     # get the minimum index
     min_i = numpy.argmin(n_per_subf)
-    c_subarray_shape[min_i] += 1
-    return c_subarray_shape
+    c_subarray_divs[min_i] += 1
+    return c_subarray_divs
 
 
 def _calculate_subarray_shape(dataset, dimensions, var_shape, dtype,
@@ -247,6 +247,10 @@ def create_partitions(base_filepath, dataset, dimensions,
         # create the subarray first
         # output shape is just the difference between the location indices
         out_shape = location[sa,:,1] - location[sa,:,0]
+        # check that no dimension is len 0 and add 1 if it is
+        for o in range(0,len(out_shape)):
+            if out_shape[o] == 0:
+                out_shape[o] = 1
         # get the sub file name
         sub_filename = base_filepath + "/" + base_filename + "_" + varname + "_[" + str(sa) + "].nc"
         cfa_subarray = CFASubarray(varname, sub_filename, format, out_shape)
