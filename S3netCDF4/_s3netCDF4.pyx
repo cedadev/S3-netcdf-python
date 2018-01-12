@@ -50,7 +50,7 @@ class s3Dataset(netCDF4.Dataset):
         # get_netCDFFilename(filename).  Diskless == always_stream
 
         # get the file details
-        self._file_details = get_netCDF_file_details(filename, mode, diskless)
+        self._file_details = get_netCDF_file_details(filename, mode, diskless, persist)
         self._cfa_variables = OrderedDict()
 
         # get the s3ClientConfig for paths to the cache and max file size
@@ -80,17 +80,18 @@ class s3Dataset(netCDF4.Dataset):
                 cfa = False
 
             if cfa:
+                # Parse the CFA metadata from this class' metadata
                 self._file_details.cfa_file = CFAFile()
                 self._file_details.cfa_file.parse(self)
                 self._file_details.cfa_file.format = self._file_details.format
-                # recreate the variables as Variables and attach the cfa data
+                # recreate the variables as s3Variables and attach the cfa data
                 for v in self.variables:
                     if v in self._file_details.cfa_file.cfa_vars:
                         self._cfa_variables[v] = s3Variable(self.variables[v],
                                                             self._file_details.cfa_file,
                                                             self._file_details.cfa_file.cfa_vars[v],
                                                             {'s3_cache_location' : self._s3_client_config['cache_location'],
-                                                             's3_max_file_size_for_memory' : self._s3_client_config['max_file_size_for_memory']})
+                                                             's3_max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']})
             else:
                 self._file_details.cfa_file = None
 
@@ -157,6 +158,7 @@ class s3Dataset(netCDF4.Dataset):
         for n in self.variables:
             names.append(n)
         return names
+
 
     def createDimension(self, dimname, size=None):
         """Overloaded version of createDimension that records the dimension info into a CFADim instance"""
@@ -493,9 +495,9 @@ class s3Variable(object):
         subset_size *= self._nc_var.dtype.itemsize
 
         # create the target array
-        # this will be a memory mapped array if it is greater than the user_config["max_file_size_for_memory"] or
+        # this will be a memory mapped array if it is greater than the user_config["max_object_size_for_memory"] or
         # the available memory
-        if subset_size > self._init_params['s3_max_file_size_for_memory'] or subset_size > virtual_memory().available:
+        if subset_size > self._init_params['s3_max_object_size_for_memory'] or subset_size > virtual_memory().available:
             # create a memory mapped array in the cache for the output array
             mmap_name = self._init_params['s3_cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
             tgt_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))

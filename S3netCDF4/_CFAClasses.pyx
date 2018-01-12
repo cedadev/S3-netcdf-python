@@ -13,12 +13,12 @@
    +-------------------------------+                +-------------------------------+
    | CFAFile                       |        +------>| CFADim                        |
    +-------------------------------+        |       +-------------------------------+
-   | cfa_vars        {CFAVariable} |        |       | dim_name         string       |
-   | cfa_dims        {CFADim}      |--------+       | metadata         {}           |
-   | format          string        |                | dim_len          [int]        |
-   | cfa_metadata    {}            |                | values           [float]      |
-   |                               |--------+       +-------------------------------+
-   +-------------------------------+        |
+   | cfa_dims        {CFADim}      |--------+       | dim_name         string       |
+   | format          string        |                | metadata         {}           |
+   | cfa_metadata    {}            |                | dim_len          [int]        |
+   | cfa_vars        {CFAVariable} |--------+       | values           [float]      |
+   +-------------------------------+        |       +-------------------------------+
+                                            |
                                             |       +-------------------------------+
                                             +------>| CFAVariable                   |
                                                     +-------------------------------+

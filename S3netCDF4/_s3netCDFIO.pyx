@@ -122,11 +122,11 @@ def get_endpoint_bucket_object(filename):
     return s3_ep, s3_bucket_name, s3_object_name
 
 
-def get_netCDF_file_details(filename, filemode='r', diskless=False):
+def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=False):
     """
     Get the details of a netCDF file which is either stored in S3 storage or on POSIX disk.
     If the file is on S3 storage, and the filemode is 'r' or 'a' then it will be streamed to either the cache or
-      into memory, depending on the filesize and the value of <max_file_size_for_memory> in the .s3nc4.json config file.
+      into memory, depending on the filesize and the value of <max_object_size_for_memory> in the .s3nc4.json config file.
 
     :param filename: filename on POSIX / URI on S3 storage
     :param filemode: 'r'ead | 'w'rite | 'a'ppend
@@ -165,9 +165,10 @@ def get_netCDF_file_details(filename, filemode='r', diskless=False):
             # retain the filetype
             file_details.format = file_type
 
-            # check whether we should stream this object - use diskless to indicate the file should be read into
-            # memory whatever its size
-            if s3_client.should_stream_to_cache(s3_bucket_name, s3_object_name) and not diskless:
+            # check whether we should stream this object
+            # - use diskless to indicate the file should be read into memory whatever its size
+            # - user persist to indicate that the file should be cached whatever its size
+            if (s3_client.should_stream_to_cache(s3_bucket_name, s3_object_name) and not diskless) or persist:
                 # stream the file to the cache
                 file_details.filename = s3_client.stream_to_cache(s3_bucket_name, s3_object_name)
             else:

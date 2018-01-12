@@ -23,7 +23,7 @@ def urljoin(*args):
     """
     url = "/".join(map(lambda x: str(x).rstrip('/'), args))
     return url
-    
+
 
 class s3ClientConfig(object):
     """Class to read in config file and interpret it"""
@@ -58,7 +58,7 @@ class s3ClientConfig(object):
            that are expressed in human readable form
         """
         # list of keys to convert
-        keys_to_convert = ["max_object_size", "max_cache_size", "max_file_size_for_memory"]
+        keys_to_convert = ["max_object_size", "max_cache_size", "max_object_size_for_memory"]
         # list of file format sizes
         file_format_sizes = ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
         # dictionary mapping to multiplier
@@ -164,7 +164,7 @@ class s3Client(object):
         """
            Determine whether the object should be streamed to a file, or into memory.
            The criteria are as follows:
-             1. The object is bigger than the user_config["max_file_size_for_memory"]
+             1. The object is bigger than the user_config["max_object_size_for_memory"]
              2. The object is larger than the amount of free RAM
            :return: boolean (True | False)
         """
@@ -183,7 +183,7 @@ class s3Client(object):
             raise s3IOException("Error: " + full_url + " not found.")
 
         # check whether the size is greater than the user_config setting
-        if object_stats.size > self._s3_user_config["max_file_size_for_memory"]:
+        if object_stats.size > self._s3_user_config["max_object_size_for_memory"]:
             stream_to_file = True
         else:
             # check whether the size is greater than the free memory
@@ -289,7 +289,7 @@ class s3Client(object):
                 self._s3_client.make_bucket(bucket_name)
             except BaseException:
                 raise s3IOException("Error: " + full_url + " cannot create bucket.")
-              
+
 
     def write(self, bucket_name, object_name):
         """

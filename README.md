@@ -10,7 +10,7 @@ An extension package to netCDF4-python to enable reading and writing netCDF file
   * [CFA-netCDF files](#cfa-netcdf-files)
   * [Creating dimensions and variables](#creating-dimensions-and-variables)
   * [Filenames and file hierarchy of CFA files](#filenames-and-file-hierarchy-of-cfa-files)
-  * [Writing data](#writing-data)
+  * [Writing field data](#writing-field-data)
   * [File splitting algorithm](#file-splitting-algorithm)
 
 # Requirements
@@ -205,7 +205,7 @@ When creating variables, a number of different workflows for writing the files o
 * `format=CFA3` or `format=CFA4`.  These two options will create a CFA-netCDF file.
   * At first only the **master-array** file is written to.  The **sub-array** files are written to when data is written to the **master-array** variable.
   * When the variable is created, the dimensions are supplied and this enables the **partition matrix** metadata to be generated:
-    * The [file splitting algorithm](#file-splitting-algorithm) determines how to split the variable into the **sub-arrays**, and creates the **partition matrix** shape, and builds the list of **partitions**
+    * The [file splitting algorithm](#file-splitting-algorithm) determines how to split the variable into the **sub-arrays**, creates the **partition matrix** shape and builds the list of **partitions**
     * The location in the **master-array** for each **sub-array** (and its shape) is determined by the file splitting algorithm
     * The filenames for each **sub-array** file are generated
   * The **partition matrix** metadata is written to the **master-array**
@@ -215,7 +215,7 @@ When creating variables, a number of different workflows for writing the files o
 ### Filenames and file hierarchy of CFA files
 As noted above, CFA files actually consist of a single **master-array** file and many **sub-array** files.  These **subarray-files** are referred to by their filepath or URI in the partition matrix.  To easily associate the **sub-array** files with the **master-array** file, a naming convention and file structure is used:
 
-* The [CFA conventions](http://www.met.reading.ac.uk/~david/cfa/0.4/) dictate that the file extension for a CFA-netCDF file should be `nca`
+* The [CFA conventions](http://www.met.reading.ac.uk/~david/cfa/0.4/) dictate that the file extension for a CFA-netCDF file should be `.nca`
 * A directory is created in the same directory / same root URI as the **master-array** file.  This directory has the same name **master-array** file without the `.nca` extension
 * In this directory all of the **sub-array** files are contained.  These subarray files follow the naming convention:
 
@@ -234,7 +234,11 @@ Example for the **master-array** file `a7tzga.pdl4feb.nca`:
     │   ├── a7tzga.pdl4feb_field1_[2].nc
     │   ├── a7tzga.pdl4feb_field1_[3].nc
 
-### Writing data
+On an S3 storage system, the **master-array** directory will form part of the *prefix* for the **sub-array** objects, as directories do not exist, in a literal sense, on S3 storage systems, only prefixes.
+
+### Writing field data
+
+For netCDF files with `format=CFA3` or `format=CFA4` specified in the
 
 [[Top]](#contents)
 

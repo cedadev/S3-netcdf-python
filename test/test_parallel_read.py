@@ -22,19 +22,19 @@ import pyximport
 pyximport.install(setup_args={"include_dirs":np.get_include()})
 
 # these are the file details in a chunk of JSON, this is from the CFA file
-cfa_json = '''{"Partitions": 
+cfa_json = '''{"Partitions":
                 [
-                  {"index": [0, 0, 0, 0], "location": [0, 0, 0, 0], "subarray": {"shape": [60, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[0].nc", "format": "netCDF"}}, 
-                  {"index": [0, 0, 0, 1], "location": [0, 0, 0, 61], "subarray": {"shape": [60, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[1].nc", "format": "netCDF"}}, 
-                  {"index": [0, 0, 1, 0], "location": [0, 0, 59, 0], "subarray": {"shape": [60, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[2].nc", "format": "netCDF"}}, 
-                  {"index": [0, 0, 1, 1], "location": [0, 0, 59, 61], "subarray": {"shape": [60, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[3].nc", "format": "netCDF"}}, 
-                  {"index": [1, 0, 0, 0], "location": [60, 0, 0, 0], "subarray": {"shape": [61, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[4].nc", "format": "netCDF"}}, 
-                  {"index": [1, 0, 0, 1], "location": [60, 0, 0, 61], "subarray": {"shape": [61, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[5].nc", "format": "netCDF"}}, 
-                  {"index": [1, 0, 1, 0], "location": [60, 0, 59, 0], "subarray": {"shape": [61, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[6].nc", "format": "netCDF"}}, 
+                  {"index": [0, 0, 0, 0], "location": [0, 0, 0, 0], "subarray": {"shape": [60, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[0].nc", "format": "netCDF"}},
+                  {"index": [0, 0, 0, 1], "location": [0, 0, 0, 61], "subarray": {"shape": [60, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[1].nc", "format": "netCDF"}},
+                  {"index": [0, 0, 1, 0], "location": [0, 0, 59, 0], "subarray": {"shape": [60, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[2].nc", "format": "netCDF"}},
+                  {"index": [0, 0, 1, 1], "location": [0, 0, 59, 61], "subarray": {"shape": [60, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[3].nc", "format": "netCDF"}},
+                  {"index": [1, 0, 0, 0], "location": [60, 0, 0, 0], "subarray": {"shape": [61, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[4].nc", "format": "netCDF"}},
+                  {"index": [1, 0, 0, 1], "location": [60, 0, 0, 61], "subarray": {"shape": [61, 1, 59, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[5].nc", "format": "netCDF"}},
+                  {"index": [1, 0, 1, 0], "location": [60, 0, 59, 0], "subarray": {"shape": [61, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[6].nc", "format": "netCDF"}},
                   {"index": [1, 0, 1, 1], "location": [60, 0, 59, 61], "subarray": {"shape": [61, 1, 60, 61], "ncvar": "field1", "file": "a7tzga.pdl3dec/a7tzga.pdl3dec_field1_[7].nc", "format": "netCDF"}}
-                ], 
-               "base": "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/", 
-               "pmdimensions": ["time0", "z0", "latitude0", "longitude0"], 
+                ],
+               "base": "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/",
+               "pmdimensions": ["time0", "z0", "latitude0", "longitude0"],
                "pmshape": [2, 1, 2, 2]
               }'''
 
