@@ -90,8 +90,8 @@ class s3Dataset(netCDF4.Dataset):
                         self._cfa_variables[v] = s3Variable(self.variables[v],
                                                             self._file_details.cfa_file,
                                                             self._file_details.cfa_file.cfa_vars[v],
-                                                            {'s3_cache_location' : self._s3_client_config['cache_location'],
-                                                             's3_max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']})
+                                                            {'cache_location' : self._s3_client_config['cache_location'],
+                                                             'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']})
             else:
                 self._file_details.cfa_file = None
 
@@ -238,12 +238,14 @@ class s3Dataset(netCDF4.Dataset):
                         self._file_details.cfa_file.cfa_dims[d].metadata = md
 
 
-                # keep the calling parameters in a dictionary
+                # keep the calling parameters in a dictionary, and add the parameters from the client config
                 parameters = {'varname' : varname, 'datatype' : datatype, 'dimensions' : dimensions, 'zlib' : zlib,
                               'complevel' : complevel, 'shuffle' : shuffle, 'fletcher32' : fletcher32,
                               'contiguous' : contiguous, 'chunksizes' : chunksizes, 'endian' : endian,
                               'least_significant_digit' : least_significant_digit,
-                              'fill_value' : fill_value, 'chunk_cache' : chunk_cache}
+                              'fill_value' : fill_value, 'chunk_cache' : chunk_cache,
+                              'cache_location' : self._s3_client_config['cache_location'],
+                              'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']}
 
                 # create the s3Variable which is a reimplementation of the netCDF4 variable
                 self._cfa_variables[varname] = s3Variable(var, self._file_details.cfa_file,
@@ -497,9 +499,9 @@ class s3Variable(object):
         # create the target array
         # this will be a memory mapped array if it is greater than the user_config["max_object_size_for_memory"] or
         # the available memory
-        if subset_size > self._init_params['s3_max_object_size_for_memory'] or subset_size > virtual_memory().available:
+        if subset_size > self._init_params['max_object_size_for_memory'] or subset_size > virtual_memory().available:
             # create a memory mapped array in the cache for the output array
-            mmap_name = self._init_params['s3_cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
+            mmap_name = self._init_params['cache_location'] + "/" + os.path.basename(subset_parts[0].subarray.file) + "_{}".format(int(numpy.random.uniform(0,1e8)))
             tgt_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))
         else:
             # create a normal array with no memory map
@@ -587,7 +589,8 @@ class s3Variable(object):
                                             least_significant_digit = ip['least_significant_digit'],
                                             fill_value = ip['fill_value'], chunk_cache = ip['chunk_cache'])
                 # add the variable cfa_metadata
-                var.setncatts(self._cfa_var.metadata)
+                if self._cfa_var.metadata:
+                    var.setncatts(self._cfa_var.metadata)
 
             # now copy the data in.  We have to decide where to copy this fragment of the data to (target)
             # and from where in the original data we want to copy it (source)
