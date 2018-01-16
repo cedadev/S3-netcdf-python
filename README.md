@@ -16,6 +16,7 @@ An extension package to netCDF4-python to enable reading and writing netCDF file
   * [Reading variables](#reading-variables)
   * [Reading metadata](#reading-metadata)
   * [Reading field data](#reading-field-data)
+* [List of examples](#list-of-examples)
 
 # Requirements
 (These are fulfilled by a pip installation, so it is not necessary to install them if you are installing the package via pip, as below.)
@@ -102,6 +103,8 @@ This can be copied to the user's home directory, and the template renamed to `~/
 ## Aliases
 To enable S3netCDF4 to write to disk, OPeNDAP and S3 object store, aliases are used to identify S3 servers.  They provide an easy to remember (and type) shorthand for the user so that they don't have to use the DNS resolved URL and port number for each S3 object access.  When creating a netCDF4 `s3Dataset` object, either to read or write, the user supplies a filename.  To indicate that the file should be written to / read from a S3 object store, the string must start with `s3://`.  After this must follow the aliased server name, as defined in the config file above.  After this aliased server name a bucket name will follow, for example to read a netCDF file called `test2.nc` from the `test` bucket on the `s3://minio` server, the user would use this code:
 
+*Example 1: open a netCDF file from a S3 storage using the alias "minio"*<a name=example-1></a>
+
     from S3netCDF4 import s3Dataset
     test_dataset = s3Dataset("s3://minio/test/test2.nc", "r")
 
@@ -115,6 +118,7 @@ If the user requests to access an object that is larger than either the host mac
 * `persist=True` this will always download the object to the local cache, no matter what its size is.
 * `diskless=True` this will always stream the object into memory, no matter its size, e.g:
 
+*Example 2: load a file into cache, no matter what it's size*<a name=example-2></a>
 
     from S3netCDF4 import s3Dataset
     test_dataset = s3Dataset("s3://minio/test/test2.nc", "r", diskless=True)
@@ -129,19 +133,18 @@ S3netCDF4 has the ability to write netCDF3, netCDF4, CFA-netCDF3 and CFA-netCDF4
 1. The `filename` can be an S3 endpoint, i.e. it starts with `s3://`
 2. In addition to the formats supported by netCDF4-python The `format` keyword can also, in addition to the formats permitted by netCDF4-python, be `CFA3`, to create a CFA-netCDF3 dataset, or `CFA4`, to create a CFA-netCDF4 dataset.
 
-*Example 1: Create a netCDF4 file in the filesystem*
+*Example 3: Create a netCDF4 file in the filesystem*<a name=example-3></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     test_dataset = Dataset("/Users/neil/test_dataset_nc4.nc", 'w', format='NETCDF4')
 
-
-*Example 2: Create a CFA-netCDF4 file in the filesystem*
+*Example 4: Create a CFA-netCDF4 file in the filesystem*<a name=example-4></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     cfa_dataset = Dataset("/Users/neil/test_dataset_cfa4.nc", 'w', format='CFA4')
 
 
-*Example 3: Create a CFA-netCDF3 file on S3 storage*
+*Example 5: Create a CFA-netCDF3 file on S3 storage*<a name=example-5></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     cfa_dataset = Dataset("s3://minio/test_bucket/test_dataset_s3_cfa3.nc", 'w', format='CFA3')
@@ -197,6 +200,8 @@ There is also a useful synopsis in the header of the \_CFAClasses.pyx file in th
 
 Creating dimensions and variables in the netCDF or CFA-netCDF4 dataset follows the same method as creating variables in the standard netCDF4-python library, e.g.:
 
+*Example 6: creating dimensions and variables*<a name=example-6></a>
+
     from S3netCDF4 import s3Dataset as Dataset
     cfa_dataset = Dataset("s3://minio/test_bucket/test_dataset_s3_cfa3.nc", 'w', format='CFA3')
 
@@ -247,6 +252,8 @@ On an S3 storage system, the **master-array** directory will form part of the *p
 ### Writing metadata
 
 Metadata can be written to the variables and the Dataset (global metadata) in the same way as the standard netCDF4 library, by creating a member variable on the Variable or Dataset object:
+
+*Example 7: creating variables with metadata*<a name=example-7></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     with Dataset("/Users/neil/test_dataset_cfa3.nca", mode='w', diskless=True, format="CFA3") as s3_data:
@@ -338,13 +345,13 @@ Files are read in the same way as the standard netCDF4-python package, by creati
 3.  The `diskless` keyword can be set to `True` to enforce streaming to memory, even if the file size is greater than the `max_object_size_for_memory`.  Caution should be used when using this option, as the file may be bigger than the available memory which will cause the memory to be paged out to disk (swap file) and performance negatively impacted.
 4.  The `persist` keyword can be set to `True` to enforce local caching of the file, even if the file size is lower than `max_object_size_for_memory`.  This ensures that the netCDF file will be available in the local cache the next time the program is run.  This can be useful while developing analysis code, or when the network connection is unreliable or slow.
 
-*Example 4: Read a netCDF file from disk*
+*Example 8: Read a netCDF file from disk*<a name=example-8></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     with Dataset("/Users/neil/test_dataset_nc4.nc", 'r') as nc_data:
         print(nc_data.variables)
 
-*Example 5: Read a CFA-netCDF file from S3 storage and always cache to disk*
+*Example 9: Read a CFA-netCDF file from S3 storage and always cache to disk*<a name=example-9></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     with Dataset("s3://minio/test_bucket/test_dataset_s3_cfa3.nc", 'r', persist=True) as nc_data:
@@ -361,7 +368,7 @@ The only major place that the S3netCDF4 API deviates from the standard netCDF4 p
 1. `getVariables()` : returns a list of variables in the Dataset.
 2. `getVariable(<variable_name>)` : return the `s3netCDF4.s3Variable` instance for `<variable_name>` if the Variable is a **master-array** in a CFA-netCDF file, or a `netCDF4.Variable` instance if it is a dimension variable, or a variable in a standard netCDF file.
 
-*Example 6: Read a netCDF file from disk and get the "field8" variable*
+*Example 10: Read a netCDF file from disk and get the "field8" variable*<a name=example-10></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     with Dataset("/Users/neil/test_dataset_nc4.nc") as src_file:
@@ -375,7 +382,7 @@ The only major place that the S3netCDF4 API deviates from the standard netCDF4 p
 
 Reading metadata from the Variables or Dataset (global metadata) is done in exactly the same way as in the standard netCDF4 python package, by querying the member variable of either a Variable or Dataset.  The `ncattrs` and `getncattr` member functions of the `Dataset` and `Variable` classes are also supported.
 
-*Example 7: Read a netCDF file, a variable and its metadata*
+*Example 11: Read a netCDF file, a variable and its metadata*<a name=example-11></a>
 
     from S3netCDF4 import s3Dataset as Dataset
     with Dataset("/Users/neil/test_dataset_nc4.nc") as src_file:
@@ -421,5 +428,19 @@ Reading a slice of field data from a variable in the **master-array** file, via 
 5. The values in the **sub-array** are copied to the **master-array** (the memory-mapped numpy array) using the source (**sub-array**) slice and the target (**master-array**) slice.
 
 *Currently the reading of data is performed serially.  Future work will concentrate on parallelising the reading of files and objects and copying the **sub-array** values to the **master-array**.*
+
+## List of examples
+
+* [Example 1: open a netCDF file from a S3 storage using the alias "minio"](#example-1)
+* [Example 2: load a file into cache, no matter what it's size](#example-2)
+* [Example 3: Create a netCDF4 file in the filesystem](#example-3)
+* [Example 4: Create a CFA-netCDF4 file in the filesystem](#example-4)
+* [Example 5: Create a CFA-netCDF3 file on S3 storage](#example-5)
+* [Example 6: creating dimensions and variables](#example-6)
+* [Example 7: creating variables with metadata](#example-7)
+* [Example 8: Read a netCDF file from disk](#example-8)
+* [Example 9: Read a CFA-netCDF file from S3 storage and always cache to disk](#example-9)
+* [Example 10: Read a netCDF file from disk and get the "field8" variable](#example-10)
+* [Example 11: Read a netCDF file, a variable and its metadata](#example-11)
 
 [[Top]](#contents)
