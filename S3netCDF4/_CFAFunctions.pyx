@@ -116,7 +116,7 @@ def _subdivide_array(var_shape, c_subarray_divs, axis_types, permitted_axes=["T"
         if axis_types[i] not in permitted_axes:
             n_per_subf[i] = int(1e6)
         # check that we are not going to subdivide more than the axis length!
-    elif c_subarray_divs[i] >= var_shape[i]:
+        elif c_subarray_divs[i] >= var_shape[i]:
             n_per_subf[i] = int(1e6)
         else:
             n_per_subf[i] = c_subarray_divs[i]
