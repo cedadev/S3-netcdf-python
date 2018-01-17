@@ -172,7 +172,7 @@ def _calculate_subarray_shape(dataset, dimensions, var_shape, dtype,
     # current subfield_repeats shape defaults to var shape
     c_subarray_divs = numpy.ones((len(var_shape),), 'i')
     # if the number of values in the field_shape is greater than max_field_size then divide
-    while (_num_vals(var_shape) / _num_vals(c_subarray_divs)) > max_field_size:
+    while (_num_vals(var_shape / c_subarray_divs)) > max_field_size:
         # get the linear access and the field access operations
         linear_ops = _get_linear_operations(c_subarray_divs, axis_types)
         field_ops = _get_field_operations(c_subarray_divs, axis_types)
@@ -208,6 +208,10 @@ def _build_list_of_indices(n_subarrays, var_shape, subarray_shape):
     for s in range(0, n_subarrays):
         location[s,:,0] = c_location[:]
         location[s,:,1]  = c_location[:] + subarray_shape[:]
+        # check we haven't stepped over the end of the array
+        for v in range(0, len(var_shape)):
+            if location[s,v,1] >= var_shape[v]:
+                location[s,v,1] = var_shape[v]-1
         pindex[s,:] = c_pindex[:]
         c_location[-1] += subarray_shape[-1]
         c_pindex[-1] += 1
