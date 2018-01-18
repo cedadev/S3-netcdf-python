@@ -52,6 +52,25 @@ def _get_axis_types(dataset, dimensions):
                 axis_types.append("X")
             else:
                 axis_types.append("N")
+    # check to see if all axis types are unknown
+    all_N = True
+    for a in axis_types:
+        all_N &= (a == "N")
+    # make a guess as to the axis type based on the shape of the array
+    if all_N:
+        # timeseries
+        if len(dimensions) == 1:
+            axis_types = ["T"]
+        # 2D Y, X
+        if len(dimensions) == 2:
+            axis_types = ["Y", "X"]
+        # 3D T, Y, X
+        if len(dimensions) == 3:
+            axis_types = ["T", "Y", "X"]
+        # 4D T, Z, Y, X
+        if len(dimensions) == 4:
+            axis_types = ["T", "Z", "Y", "X"]
+
     return axis_types
 
 
