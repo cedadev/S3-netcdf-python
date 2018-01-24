@@ -3,18 +3,20 @@ import time
 import numpy as np
 from datetime import datetime, timedelta
 from netCDF4 import num2date, date2num
-sys.path.append(os.path.expanduser("~/Coding/S3-netcdf-python-read-write/"))
+#sys.path.append(os.path.expanduser("~/Coding/S3-netcdf-python-parallel/"))
 
 from S3netCDF4._s3netCDF4 import s3Dataset as Dataset
+
+import time
 
 S3_DATASET_PATH = "s3://minio/cru-ts-3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tmp.dat.nc"
 NC_DATASET_PATH  = "/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tmp.dat.nc"
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
 S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
-WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
-#WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nc"
-WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
+WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nc"
+WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nca"
+#WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -95,6 +97,7 @@ def test_s3_write_dataset():
 def test_s3_split_dataset():
     # load a netCDF4 file, split it into sub array files, write and upload the sub array files
     # and write and upload the master array file (.nca)
+    print "Writing to S3"
     with Dataset(WAH_NC4_DATASET_PATH) as src, Dataset(WAH_S3_DATASET_PATH, "w", format="CFA4") as dst:
         # copy global attributes
         for name in src.ncattrs():
@@ -116,28 +119,26 @@ def test_s3_split_dataset():
                 var = dst.createVariable(name, variable.datatype, variable.dimensions)
                 d = {k: src.variables[name].getncattr(k) for k in src.variables[name].ncattrs()}
                 var.setncatts(d)
-                # just write the first 10 timesteps to test subarray write
-                if len(src.variables[name].shape) > 0 and src.variables[name].shape[0] > 10:
-                    var[:10] = src.variables[name][:10]
+                var[:] = src.variables[name][:]
 
 
 def test_s3_read_cfa():
     """Test opening a CFA file on the object."""
     with Dataset(WAH_S3_DATASET_PATH, 'r') as nc_file:
         nc_var = nc_file.getVariable("field8")
-        print nc_var.shape
-        print nc_var.dimensions
-        print nc_var.name
-        print nc_var.datatype
-        print nc_var.size
-        print type(nc_var)
-        print np.mean(nc_var[0:10,0,40:80,40:80])
+        #x = nc_var[:]
+        print np.mean(nc_var)
+        #print np.mean(nc_var[0:10])
 
+
+def test_disk_read_original():
+    print "Reading original file"
     # load the original file and take the mean
     with Dataset(WAH_NC4_DATASET_PATH) as src_file:
         src_var = src_file.variables["field8"]
-        print type(src_var)
-        print np.mean(src_var[0:10,0,40:80,40:80])
+        #x = src_var[:]
+        print np.mean(src_var)
+        #print np.mean(src_var[0:10])
 
 
 if __name__ == "__main__":
@@ -145,5 +146,14 @@ if __name__ == "__main__":
     #test_file_open_dataset()
     #test_s3_write_dataset()
     #test_s3_open_not_netcdf()
-    test_s3_split_dataset()
-    #test_s3_read_cfa()
+    #test_s3_split_dataset()
+
+    #test timings
+    print "Reading from S3"
+    wc = time.time()
+    for n in range(0,20):
+        test_s3_read_cfa()
+    ct = time.time()
+    print ct-wc
+
+    test_disk_read_original()
