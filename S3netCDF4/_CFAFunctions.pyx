@@ -203,8 +203,7 @@ def _calculate_subarray_shape(dataset, dimensions, var_shape, dtype,
 
     # we have so far calculated the optimum number of times each axis will be divided
     # translate this into a (floating point) number of elements in each chunk, for each axis
-    c_subarray_shape = numpy.array(var_shape, 'f') / c_subarray_divs
-
+    c_subarray_shape = numpy.array(var_shape, 'd') / c_subarray_divs
     return c_subarray_shape
 
 
@@ -219,18 +218,14 @@ def _build_list_of_indices(n_subarrays, var_shape, subarray_shape):
     location = numpy.zeros((n_subarrays, len(subarray_shape), 2),'i')
 
     # create the current location and set it to zero
-    c_location = numpy.zeros((len(subarray_shape),),'f')
+    c_location = numpy.zeros((len(subarray_shape),),'d')
     # create the current partition index
-    c_pindex = numpy.zeros((len(subarray_shape),), 'f')
+    c_pindex = numpy.zeros((len(subarray_shape),), 'd')
 
     # iterate through all the subarrays
     for s in range(0, n_subarrays):
         location[s,:,0] = c_location[:]
         location[s,:,1]  = c_location[:] + subarray_shape[:]
-        # check we haven't stepped over the end of the array
-        for v in range(0, len(var_shape)):
-            if location[s,v,1] >= var_shape[v]:
-                location[s,v,1] = var_shape[v]-1
         pindex[s,:] = c_pindex[:]
         c_location[-1] += subarray_shape[-1]
         c_pindex[-1] += 1
@@ -240,7 +235,6 @@ def _build_list_of_indices(n_subarrays, var_shape, subarray_shape):
                 c_location[i-1] += subarray_shape[i-1]
                 c_pindex[i] = 0
                 c_pindex[i-1] += 1
-
     return pindex, location
 
 
@@ -270,10 +264,6 @@ def create_partitions(base_filepath, dataset, dimensions,
         # create the subarray first
         # output shape is just the difference between the location indices
         out_shape = location[sa,:,1] - location[sa,:,0]
-        # check that no dimension is len 0 and add 1 if it is
-        for o in range(0,len(out_shape)):
-            if out_shape[o] == 0:
-                out_shape[o] = 1
         # get the sub file name
         sub_filename = base_filepath + "/" + base_filename + "_" + varname + "_[" + str(sa) + "].nc"
         cfa_subarray = CFASubarray(varname, sub_filename, format, out_shape)
