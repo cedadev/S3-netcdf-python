@@ -18,6 +18,10 @@ from _CFAFunctions import *
 from _s3Client import s3ClientConfig
 from psutil import virtual_memory
 
+#from interfaces._baseInterface import _baseInterface as interface
+from interfaces._threadInterface import _threadInterface as interface
+#from interfaces._processInterface import _processInterface as interface
+
 import os
 from collections import OrderedDict
 
@@ -91,7 +95,8 @@ class s3Dataset(netCDF4.Dataset):
                                                             self._file_details.cfa_file,
                                                             self._file_details.cfa_file.cfa_vars[v],
                                                             {'cache_location' : self._s3_client_config['cache_location'],
-                                                             'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']})
+                                                             'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory'],
+                                                             'read_threads' : self._s3_client_config['read_threads']})
             else:
                 self._file_details.cfa_file = None
 
@@ -245,7 +250,8 @@ class s3Dataset(netCDF4.Dataset):
                               'least_significant_digit' : least_significant_digit,
                               'fill_value' : fill_value, 'chunk_cache' : chunk_cache,
                               'cache_location' : self._s3_client_config['cache_location'],
-                              'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory']}
+                              'max_object_size_for_memory' : self._s3_client_config['max_object_size_for_memory'],
+                              'write_threads' : self._s3_client_config['write_threads']}
 
                 # create the s3Variable which is a reimplementation of the netCDF4 variable
                 self._cfa_variables[varname] = s3Variable(var, self._file_details.cfa_file,
@@ -275,23 +281,10 @@ class s3Dataset(netCDF4.Dataset):
             # if it's a CFA file then write out the master CFA file and the sub CF netCDF files
             if self._file_details.cfa_file:
                 if self._file_details.s3_uri != "":
-                    # upload to s3
-                    put_netCDF_file(self._file_details.s3_uri)
-                    # remove cached file
-                    os.remove(self._file_details.filename)
-                    # get the base directory where all the subarray files are held
-                    base_dir = self._file_details.filename[:self._file_details.filename.rfind(".")]
-                    # loop over the variables
-                    for v in self._cfa_variables:
-                        # loop over the partitions
-                        for p in self._cfa_variables[v]._cfa_var.partitions:
-                            # filename is part of the subarray structure
-                            # s3netCDFIO will handle the putting to s3 object store
-                            # have to check that the file exists as when writing just parts of the file, it may not!
-                            fname = base_dir + "/" + os.path.basename(p.subarray.file)
-                            if os.path.exists(fname):
-                                put_netCDF_file(p.subarray.file)
-                                os.remove(fname)
+                    # create the upload interface ready for the loop
+                    upload_interface = interface()
+                    upload_interface.set_upload_params(self._file_details, self._cfa_variables, self._s3_client_config["upload_threads"])
+                    upload_interface.upload()
 
             # if it's not a CFA file then just upload it.
             else:
@@ -323,7 +316,7 @@ class s3Variable(object):
         return unicode(self._nc_var).encode('utf-8')
 
     def __array__(self):
-        return self._nc_var.__array__()
+        return self[:]
 
     def __unicode__(self):
         return self._nc_var.__unicode__()
@@ -506,29 +499,14 @@ class s3Variable(object):
         else:
             # create a normal array with no memory map
             tgt_arr = numpy.zeros(subset_shape, dtype=self._nc_var.dtype)
-        # loop over the subset partitions
-        for part in subset_parts:
-            # get the filename, either in the cache for s3 files or on disk for POSIX
-            file_details = get_netCDF_file_details(part.subarray.file, 'r')
 
-            # open the file as a dataset - see if it is first streamed to memory
-            if file_details.memory != "":
-                # we have to first create the dummy file (name held in file_details.memory) - check it exists before creating it
-                if not os.path.exists(file_details.filename):
-                    temp_file = netCDF4.Dataset(file_details.filename, 'w', format=file_details.format).close()
-                # create the netCDF4 dataset from the data, using the temp_file
-                nc_file = netCDF4.Dataset(file_details.filename, mode='r',
-                                          diskless=True, persist=False, memory=file_details.memory)
-            else:
-                # not in memory but has been streamed to disk - persist in the cache
-                nc_file = netCDF4.Dataset(file_details.filename, mode='r')
+        # create the interface for reading, pass in the target array
+        read_interface = interface()
+        read_interface.set_read_params(tgt_arr,
+                                       self._init_params['read_threads'])
 
-            # get the source and target slices - use the filled slices from above
-            py_source_slice, py_target_slice = get_source_target_slices(part, elem_slices)
-            # get the variable
-            nc_var = nc_file.variables[part.subarray.ncvar]
-            # place the data in the memory mapped array
-            tgt_arr[py_target_slice] = nc_var[py_source_slice]
+        # use the interface to read the data in
+        read_interface.read(subset_parts, elem_slices)
         return tgt_arr
 
 
@@ -542,60 +520,10 @@ class s3Variable(object):
         for p in self._cfa_var.partitions:
             if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
-        # loop over the subset partitions
-        for part in subset_parts:
-            # get the filename, either in the cache for s3 files or on disk for POSIX
-            file_details = get_netCDF_file_details(part.subarray.file, 'w')
-            # check if the file has already been created
-            if os.path.exists(file_details.filename):
-                # open the file in append mode
-                ncfile = netCDF4.Dataset(file_details.filename, mode='r+')
-                var = ncfile.variables[self._nc_var.name]
-            else:
-                # first create the destination directory, if it doesn't exist
-                dest_dir = os.path.dirname(file_details.filename)
-                if not os.path.isdir(dest_dir):
-                    os.makedirs(dest_dir)
 
-                # create the netCDF file
-                ncfile = netCDF4.Dataset(file_details.filename, 'w', format=self._cfa_file.format)
-                # create the dimensions
-                for d in range(0, len(self._cfa_var.pmdimensions)):
-                    # get the dimension details from the _cfa_var
-                    dim_name = self._cfa_var.pmdimensions[d]
-                    cfa_dim = self._cfa_file.cfa_dims[dim_name]
-
-                    # the dimension lengths come from the subarray
-                    dim_size = part.subarray.shape[d]
-                    # create the dimension
-                    if cfa_dim.dim_len == -1:       # allow for unlimited dimension
-                        ncfile.createDimension(cfa_dim.dim_name, None)
-                    else:
-                        ncfile.createDimension(cfa_dim.dim_name, dim_size)
-
-                    # create the dimension variable
-                    dim_var = ncfile.createVariable(cfa_dim.dim_name, cfa_dim.values.dtype, (cfa_dim.dim_name,))
-                    # add the metadata as attributes
-                    dim_var.setncatts(cfa_dim.metadata)
-                    # add the values for the dimension - we need to build the indices
-                    dim_var[:] = cfa_dim.values[part.location[d,0]:part.location[d,1]+1]
-
-                # create the variable - match the parameters to those used in the createVariable function in s3Dataset
-                ip = self._init_params # just a shorthand
-                var = ncfile.createVariable(self._nc_var.name, self._nc_var.datatype, self._cfa_var.pmdimensions,
-                                            zlib = ip['zlib'], complevel = ip['complevel'], shuffle = ip['shuffle'],
-                                            fletcher32 = ip['fletcher32'], contiguous = ip['contiguous'],
-                                            chunksizes = ip['chunksizes'], endian = ip['endian'],
-                                            least_significant_digit = ip['least_significant_digit'],
-                                            fill_value = ip['fill_value'], chunk_cache = ip['chunk_cache'])
-                # add the variable cfa_metadata
-                if self._cfa_var.metadata:
-                    var.setncatts(self._cfa_var.metadata)
-
-            # now copy the data in.  We have to decide where to copy this fragment of the data to (target)
-            # and from where in the original data we want to copy it (source)
-            # get the source and target slices - these are flipped in relation to __getitem__
-            py_target_slice, py_source_slice = get_source_target_slices(part, elem_slices)
-            # copy the data in
-            var[py_target_slice] = data[py_source_slice]
-            ncfile.close()
+        # create the interface for writing, pass in the target array
+        write_interface = interface()
+        # pass in the required parameters for writing
+        write_interface.set_write_params(data, self._nc_var, self._cfa_var, self._cfa_file,
+                                         self._init_params['write_threads'], self._init_params)
+        write_interface.write(subset_parts, elem_slices)
