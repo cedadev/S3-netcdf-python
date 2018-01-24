@@ -282,13 +282,13 @@ class s3Client(object):
            Create a bucket on S3 storage
         """
         # full url for error reporting
-        full_url = urljoin(self._url, bucket_name, object_name)
+        full_url = urljoin(self._url, bucket_name)
         # check the bucket exists
         if not self._s3_client.bucket_exists(bucket_name):
             try:
                 self._s3_client.make_bucket(bucket_name)
-            except BaseException:
-                raise s3IOException("Error: " + full_url + " cannot create bucket.")
+            except BaseException as e:
+                raise s3IOException("Error: " + full_url + " cannot create bucket.", e)
 
 
     def write(self, bucket_name, object_name):
@@ -304,10 +304,13 @@ class s3Client(object):
         if not(os.path.exists(s3_cache_filename)):
             raise s3IOException("Error: " + s3_cache_filename + " file not found in cache.")
 
+        # create the bucket if necessary
+        self.create_bucket(bucket_name)
+
         try:
             self._s3_client.fput_object(bucket_name, object_name, s3_cache_filename)
-        except BaseException:
-            raise s3IOException("Error: " + full_url + " cannot write S3 object.")
+        except BaseException as e:
+            raise s3IOException("Error: " + full_url + " cannot write S3 object. ", e)
 
 
     def get_cache_location(self):
