@@ -63,10 +63,10 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
                     # delete the sub-array file
                     client.delete(sub_array_bucket, sub_array_object)
             else:
-                if os.path.exists(fname):
-                    os.unlink(fname)
+                if os.path.exists(sub_array_fname):
+                    os.unlink(sub_array_fname)
                 else:
-                    print ("{} not found, not deleting.".format(fname))
+                    print ("{} not found, not deleting.".format(sub_array_fname))
 
     # delete the master-array file
     client.delete(master_array_bucket, master_array_object)
