@@ -24,12 +24,17 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
     # Stream the file to disk - the filename will be "NETCDF4_dummy.nc" in the user's cache directory
     # The path will be stored in file_details.filename
     # we have to first create the dummy file - check it exists before creating it
-    if not os.path.exists(file_details.filename):
-        temp_file = Dataset(file_details.filename, 'w', format=file_details.format).close()
+    print file_details.filename, file_details.memory
+    if "s3://" in master_array_fname:
+        if not os.path.exists(file_details.filename):
+            temp_file = Dataset(file_details.filename, 'w', format=file_details.format).close()
     # create the netCDF4 dataset from the data, using the temp_file
-    nc_dataset = Dataset(file_details.filename, mode='r', clobber=True,
-                        format=file_details.format, diskless=True, persist=False,
-                        memory=file_details.memory)
+    if file_details.memory != "":
+        nc_dataset = Dataset(file_details.filename, mode='r',
+                            format=file_details.format, diskless=True, persist=False,
+                            memory=file_details.memory)
+    else:
+        nc_dataset = Dataset(file_details.filename, mode='r', format=file_details.format)
 
     # Parse the file
     cfa_file = CFAFile()
@@ -46,9 +51,10 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
         if resp == 'n' or resp == 'N':
             return
 
-    # get the endpoint, bucket name, object name of the master array and create a s3_client
-    s3_ep, master_array_bucket, master_array_object = get_endpoint_bucket_object(master_array_fname)
-    client = s3Client(s3_ep, client_config)
+    if "s3://" in master_array_fname:
+        # get the endpoint, bucket name, object name of the master array and create a s3_client
+        s3_ep, master_array_bucket, master_array_object = get_endpoint_bucket_object(master_array_fname)
+        client = s3Client(s3_ep, client_config)
 
     # we're going to delete everything!
     for v in cfa_file.cfa_vars:
@@ -68,12 +74,21 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
                 else:
                     print ("{} not found, not deleting.".format(sub_array_fname))
 
-    # delete the master-array file
-    client.delete(master_array_bucket, master_array_object)
+    if "s3://" in master_array_fname:
+        # delete the master-array file
+        client.delete(master_array_bucket, master_array_object)
 
-    # is the bucket empty? - delete if it is
-    if client.bucket_empty(master_array_bucket):
-        client.delete_bucket(master_array_bucket)
+        # is the bucket empty? - delete if it is
+        if client.bucket_empty(master_array_bucket):
+            client.delete_bucket(master_array_bucket)
+    else:
+        # delete the master array file
+        os.unlink(master_array_fname)
+        # delete the directory
+        master_array_directory = os.path.splitext(master_array_fname)[0]
+        if os.path.exists(master_array_directory):
+            os.rmdir(master_array_directory)
+
 
 if __name__ == "__main__":
 
