@@ -203,12 +203,12 @@ def _calculate_subarray_shape(dataset, dimensions, var_shape, dtype,
 
     # we have so far calculated the optimum number of times each axis will be divided
     # translate this into a (floating point) number of elements in each chunk, for each axis
-    c_subarray_shape = numpy.array(var_shape, 'd') / c_subarray_divs
+    c_subarray_shape = numpy.array(var_shape, 'f') / c_subarray_divs
 
     return c_subarray_shape
 
 
-def _build_list_of_indices(n_subarrays, var_shape, subarray_shape):
+def _build_list_of_indices(n_subarrays, pmshape, subarray_shape):
     # calculate the indices for each metadata component in the CFA standard:
     # n_subarrays = number of subfields
     # location - the indices of the location of the sub-array in the master-array
@@ -218,24 +218,31 @@ def _build_list_of_indices(n_subarrays, var_shape, subarray_shape):
     pindex   = numpy.zeros((n_subarrays, len(subarray_shape),),'i')
     location = numpy.zeros((n_subarrays, len(subarray_shape), 2),'i')
 
-    # create the current location and set it to zero
-    c_location = numpy.zeros((len(subarray_shape),),'d')
     # create the current partition index
-    c_pindex = numpy.zeros((len(subarray_shape),), 'd')
+    c_pindex = numpy.zeros((len(subarray_shape),), 'i')
 
-    # iterate through all the subarrays
+    # iterate through all the subarrays increasing the partitions
     for s in range(0, n_subarrays):
-        location[s,:,0] = c_location[:]
-        location[s,:,1]  = c_location[:] + subarray_shape[:]
+        # set partition index to current iterated partition index
         pindex[s,:] = c_pindex[:]
-        c_location[-1] += subarray_shape[-1]
+        # calculate the start and end locations
+        location[s,:,0] = (0.5+pindex[s,:] * subarray_shape).astype('i')
+        location[s,:,1] = (0.5+pindex[s,:] * subarray_shape + subarray_shape).astype('i')
+        # increase current iterated partition index
         c_pindex[-1] += 1
-        for i in range(len(subarray_shape)-1, -1, -1):
-            if c_location[i] >= var_shape[i]:
-                c_location[i] = 0
-                c_location[i-1] += subarray_shape[i-1]
+        # now check if any of the current iterated index is greater than the shape of the partition matrix
+        for i in range(len(subarray_shape)-1, 0, -1):
+            if c_pindex[i] >= pmshape[i]:
+                # they are, so set current partition index to zero
                 c_pindex[i] = 0
+                # increase the one previous partition index by one
                 c_pindex[i-1] += 1
+                # +---------------+
+                # | . | . | . | + |
+                # +---------------+
+                #   ^   ^   ^   |
+                #   |   |   |   |
+                #   ----+---+---+
 
     return pindex, location
 
@@ -252,10 +259,10 @@ def create_partitions(base_filepath, dataset, dimensions,
     pmshape = numpy.array(var_shape) / subarray_shape
 
     # calculate the number of subarrays needed
-    n_subarrays = int(_num_vals(var_shape) / _num_vals(subarray_shape))
+    n_subarrays = int(_num_vals(pmshape))
 
     # build a list of indices into the master array and where these fit into the partition map
-    pindex, location = _build_list_of_indices(n_subarrays, var_shape, subarray_shape)
+    pindex, location = _build_list_of_indices(n_subarrays, pmshape, subarray_shape)
 
     # get the base_filename - last part of base_filepath
     base_filename = os.path.basename(base_filepath)
