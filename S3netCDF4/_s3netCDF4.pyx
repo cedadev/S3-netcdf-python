@@ -418,7 +418,7 @@ class s3Variable(object):
         elif name == "shape":
             raise AttributeError("shape cannot be altered")
         else:
-            self._nc_var.__setattr(name, value)
+            self._nc_var.__setattr__(name, value)
 
     def __getattr__(self, name):
         # check whether it is _nc_var or _cfa_var
