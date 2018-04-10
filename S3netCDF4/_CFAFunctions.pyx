@@ -208,7 +208,7 @@ def _calculate_subarray_shape(dataset, dimensions, var_shape, dtype,
     return c_subarray_shape
 
 
-def _build_list_of_indices(n_subarrays, pmshape, subarray_shape):
+def _build_list_of_indices(n_subarrays, pmshape, subarray_shape, var_shape):
     # calculate the indices for each metadata component in the CFA standard:
     # n_subarrays = number of subfields
     # location - the indices of the location of the sub-array in the master-array
@@ -228,6 +228,7 @@ def _build_list_of_indices(n_subarrays, pmshape, subarray_shape):
         # calculate the start and end locations
         location[s,:,0] = (0.5+pindex[s,:] * subarray_shape).astype('i')
         location[s,:,1] = (0.5+pindex[s,:] * subarray_shape + subarray_shape).astype('i')
+                
         # increase current iterated partition index
         c_pindex[-1] += 1
         # now check if any of the current iterated index is greater than the shape of the partition matrix
@@ -262,7 +263,7 @@ def create_partitions(base_filepath, dataset, dimensions,
     n_subarrays = int(_num_vals(pmshape))
 
     # build a list of indices into the master array and where these fit into the partition map
-    pindex, location = _build_list_of_indices(n_subarrays, pmshape, subarray_shape)
+    pindex, location = _build_list_of_indices(n_subarrays, pmshape, subarray_shape, var_shape)
 
     # get the base_filename - last part of base_filepath
     base_filename = os.path.basename(base_filepath)

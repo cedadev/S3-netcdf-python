@@ -306,8 +306,8 @@ class s3Client(object):
 
         try:
             self._s3_client.fput_object(bucket_name, object_name, s3_cache_filename)
-        except BaseException:
-            raise s3IOException("Error: " + full_url + " cannot write S3 object.")
+        except BaseException as e:
+            raise s3IOException("Error: " + full_url + " cannot write S3 object: " + str(e))
 
 
     def get_cache_location(self):
