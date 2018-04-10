@@ -24,7 +24,6 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
     # Stream the file to disk - the filename will be "NETCDF4_dummy.nc" in the user's cache directory
     # The path will be stored in file_details.filename
     # we have to first create the dummy file - check it exists before creating it
-    print file_details.filename, file_details.memory
     if "s3://" in master_array_fname:
         if not os.path.exists(file_details.filename):
             temp_file = Dataset(file_details.filename, 'w', format=file_details.format).close()
