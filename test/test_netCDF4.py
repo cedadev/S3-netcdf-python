@@ -94,7 +94,9 @@ def test_s3_write_dataset():
 def test_s3_split_dataset():
     # load a netCDF4 file, split it into sub array files, write and upload the sub array files
     # and write and upload the master array file (.nca)
-    with Dataset(WAH_NC4_DATASET_PATH) as src, Dataset(WAH_S3_DATASET_PATH, "w", format="CFA4") as dst:
+    SRC = WAH_NC4_DATASET_PATH
+    DST = WAH_NC4_DATASET_PATH + "a" # WAH_S3_DATASET_PATH
+    with Dataset(SRC) as src, Dataset(DST, "w", format="CFA4") as dst:
         # copy global attributes
         for name in src.ncattrs():
             dst.setncattr(name, src.getncattr(name))
@@ -138,10 +140,10 @@ def test_s3_read_split_dataset():
 
 
 if __name__ == "__main__":
-    #test_s3_open_dataset()
-    #test_file_open_dataset()
-    #test_s3_open_not_netcdf()
+    test_s3_open_dataset()
+    test_file_open_dataset()
+    test_s3_open_not_netcdf()
     test_s3_split_dataset()
-    #test_s3_write_dataset()
-    #test_s3_read_cfa()
-    #test_s3_read_split_dataset()
+    test_s3_write_dataset()
+    test_s3_read_cfa()
+    test_s3_read_split_dataset()
