@@ -310,7 +310,7 @@ class s3Client(object):
         try:
             self._s3_client.fput_object(bucket_name, object_name, s3_cache_filename)
         except BaseException as e:
-            raise s3IOException("Error: " + full_url + " cannot write S3 object. ", e)
+            raise s3IOException("Error: " + full_url + " cannot write S3 object: " + str(e))
 
 
     def get_cache_location(self):
@@ -324,3 +324,16 @@ class s3Client(object):
     def get_full_url(self, bucket_name, object_name):
         full_url = urljoin(self._url, bucket_name, object_name)
         return full_url
+
+    def bucket_empty(self, bucket_name):
+        # list the objects
+        obj_list = self._s3_client.list_objects(bucket_name)
+        n_objects = sum(1 for _ in obj_list)
+        return n_objects == 0
+
+    def delete_bucket(self, bucket_name):
+        self._s3_client.remove_bucket(bucket_name)
+
+    def delete(self, bucket_name, object_name):
+        """Delete a single object"""
+        self._s3_client.remove_object(bucket_name, object_name)

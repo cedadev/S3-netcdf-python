@@ -14,9 +14,14 @@ NC_DATASET_PATH  = "/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
 S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
 S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
+<<<<<<< HEAD
 WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nc"
 #WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nca"
 WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
+=======
+WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4mar.nc"
+WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4mar.nca"
+>>>>>>> c0e403ef67f9b2e32f2ab33a08828bfa70f17d3f
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -104,8 +109,9 @@ def test_s3_read_dataset():
 def test_s3_split_dataset():
     # load a netCDF4 file, split it into sub array files, write and upload the sub array files
     # and write and upload the master array file (.nca)
-    print "Writing to S3"
-    with Dataset(WAH_NC4_DATASET_PATH) as src, Dataset(WAH_S3_DATASET_PATH, "w", format="CFA4") as dst:
+    SRC = WAH_NC4_DATASET_PATH
+    DST = WAH_NC4_DATASET_PATH + "a" # WAH_S3_DATASET_PATH
+    with Dataset(SRC) as src, Dataset(DST, "w", format="CFA4") as dst:
         # copy global attributes
         for name in src.ncattrs():
             dst.setncattr(name, src.getncattr(name))
@@ -129,38 +135,32 @@ def test_s3_split_dataset():
                 var[:] = src.variables[name][:]
 
 
-def test_s3_read_cfa():
+def test_s3_read_split_dataset():
     """Test opening a CFA file on the object."""
     with Dataset(WAH_S3_DATASET_PATH, 'r') as nc_file:
         nc_var = nc_file.getVariable("field8")
-        #x = nc_var[:]
-        print np.mean(nc_var)
-        #print np.mean(nc_var[0:10])
-
+        print nc_var.shape
+        print nc_var.dimensions
+        print nc_var.name
+        print nc_var.datatype
+        print nc_var.size
+        print type(nc_var)
+        print np.mean(nc_var[:])
 
 def test_disk_read_original():
     print "Reading original file"
     # load the original file and take the mean
     with Dataset(WAH_NC4_DATASET_PATH) as src_file:
         src_var = src_file.variables["field8"]
-        #x = src_var[:]
-        print np.mean(src_var)
-        #print np.mean(src_var[0:10])
+        print type(src_var)
+        print np.mean(src_var[:])
 
 
 if __name__ == "__main__":
-    #test_s3_open_dataset()
-    #test_file_open_dataset()
-    #test_s3_write_dataset()
-    #test_s3_open_not_netcdf()
-    #test_s3_split_dataset()
-
-    #test timings
-    print "Reading from S3"
-#    print Dataset.interface.name()
-    wc = time.time()
-    test_s3_read_dataset()
-    ct = time.time()
-    print ct-wc
-
-    #test_disk_read_original()
+    test_s3_open_dataset()
+    test_file_open_dataset()
+    test_s3_open_not_netcdf()
+    test_s3_split_dataset()
+    test_s3_write_dataset()
+    test_s3_read_cfa()
+    test_s3_read_split_dataset()

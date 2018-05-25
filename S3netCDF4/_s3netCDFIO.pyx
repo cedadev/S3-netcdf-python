@@ -122,7 +122,7 @@ def get_endpoint_bucket_object(filename):
     return s3_ep, s3_bucket_name, s3_object_name
 
 
-def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=False):
+def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=False, s3_client_config=None):
     """
     Get the details of a netCDF file which is either stored in S3 storage or on POSIX disk.
     If the file is on S3 storage, and the filemode is 'r' or 'a' then it will be streamed to either the cache or
@@ -146,7 +146,7 @@ def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=Fals
         s3_ep, s3_bucket_name, s3_object_name = get_endpoint_bucket_object(filename)
 
         # create the s3 client
-        s3_client = s3Client(s3_ep)
+        s3_client = s3Client(s3_ep, s3_client_config)
         # get the full url for error messages
         full_url = s3_client.get_full_url(s3_bucket_name, s3_object_name)
 
