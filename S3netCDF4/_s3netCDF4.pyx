@@ -411,7 +411,7 @@ class s3Variable(object):
         elif name == "shape":
             raise AttributeError("shape cannot be altered")
         else:
-            self._nc_var.__setattr(name, value)
+            self._nc_var.__setattr__(name, value)
 
     def __getattr__(self, name):
         # check whether it is _nc_var or _cfa_var
@@ -477,7 +477,6 @@ class s3Variable(object):
         for p in self._cfa_var.partitions:
             if partition_overlaps(p, elem_slices):
                 subset_parts.append(p)
-
         # create the target shape from the elem slices and the size (number of elements)
         subset_size = 1
         subset_shape = []

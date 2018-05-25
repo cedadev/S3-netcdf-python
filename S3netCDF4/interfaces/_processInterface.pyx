@@ -50,6 +50,10 @@ class _processInterface(_baseInterface):
        This class uses the python multiprocessing module to read / write / upload the data
     """
 
+    def name():
+        """Return the name of the interface for debugging purposes"""
+        return "processInterface"
+
     def read(self, partitions, elem_slices):
         """Read (in parallel) the list of partitions which are in a subgroup determined by S3Variable.__getitem__"""
         # form the subset parts into subgroups based on the number of read threads
@@ -100,7 +104,6 @@ class _processInterface(_baseInterface):
                     if t.is_alive():
                         n_alive+=1
                     else:
-                        t.join()
                         # now move the data from the temporary arrays into the large memmapped array
                         self._data[slices_store[i]] = np.frombuffer(shared_arrays[i], 'f').reshape(shape_store[i])
 

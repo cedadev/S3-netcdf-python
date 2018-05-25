@@ -110,6 +110,11 @@ class _baseInterface(object):
         return
 
 
+    def name():
+        """Return the name of the interface for debugging purposes"""
+        return "baseInterface"
+
+
     def set_read_params(self, data, read_threads):
         """Set the required input papramenets to successfully read the CFA files"""
         self._data = data
