@@ -283,7 +283,7 @@ class s3Dataset(netCDF4.Dataset):
                 if self._file_details.s3_uri != "":
                     # create the upload interface ready for the loop
                     upload_interface = interface()
-                    upload_interface.set_upload_params(self._file_details, self._cfa_variables, self._s3_client_config["upload_threads"])
+                    upload_interface.set_upload_params(self._file_details, self._cfa_variables, self._s3_client_config["write_threads"])
                     upload_interface.upload()
 
             # if it's not a CFA file then just upload it.

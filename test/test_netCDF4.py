@@ -12,16 +12,10 @@ import time
 S3_DATASET_PATH = "s3://minio/cru-ts-3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tmp.dat.nc"
 NC_DATASET_PATH  = "/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/tmp/cru_ts3.24.01.1951.1960.tmp.dat.nc"
 S3_NOT_NETCDF_PATH = "s3://minio/cru-ts-3.24.01/Botley_Timetable_Sept2016v4.pdf"
-S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test1/test2/netcdf_test.nc"
+S3_WRITE_NETCDF_PATH = "s3://minio/test-bucket/test10/test2/netcdf_test.nc"
 S3_CFA_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl3dec.nca"
-<<<<<<< HEAD
-WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nc"
-#WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4jan.nca"
-WAH_S3_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4feb.nca"
-=======
 WAH_NC4_DATASET_PATH = "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4mar.nc"
 WAH_S3_DATASET_PATH = "s3://minio/weather-at-home/data/1314Floods/a_series/hadam3p_eu_a7tz_2013_1_008571189_0/a7tzga.pdl4mar.nca"
->>>>>>> c0e403ef67f9b2e32f2ab33a08828bfa70f17d3f
 
 def test_s3_open_dataset():
     """Test opening a netCDF file from the object store"""
@@ -157,10 +151,10 @@ def test_disk_read_original():
 
 
 if __name__ == "__main__":
-    test_s3_open_dataset()
-    test_file_open_dataset()
-    test_s3_open_not_netcdf()
-    test_s3_split_dataset()
+    #test_s3_open_dataset()
+    #test_file_open_dataset()
+    #test_s3_open_not_netcdf()
+    #test_s3_split_dataset()
     test_s3_write_dataset()
-    test_s3_read_cfa()
-    test_s3_read_split_dataset()
+    #test_s3_read_cfa()
+    #test_s3_read_split_dataset()
