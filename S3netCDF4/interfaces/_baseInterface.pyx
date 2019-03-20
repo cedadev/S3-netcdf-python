@@ -64,7 +64,10 @@ class _baseInterface(object):
             # first create the destination directory, if it doesn't exist
             dest_dir = os.path.dirname(file_details.filename)
             if not os.path.isdir(dest_dir):
-                os.makedirs(dest_dir)
+                try:
+                    os.makedirs(dest_dir)
+                except:
+                    pass
 
             # create the netCDF file
             ncfile = netCDF4.Dataset(file_details.filename, 'w', format=self._cfa_file.format)
@@ -143,6 +146,7 @@ class _baseInterface(object):
         # Read all the partitions (serially)
         # We use return slots so that the multi-thread versions can read in the data
         # and then move it into memory afterwards
+        print "Serial read"
         for part in partitions:
             return_queue = Queue()
             self._read_partition(0, return_queue, part, elem_slices)
@@ -156,7 +160,7 @@ class _baseInterface(object):
 
     def write(self, partitions, elem_slices):
         """Write (in serial) the list of partitions which are in the subgroup determined by S3Variable.__setitem__"""
-
+        print "Serial write"
         # write all the paritions (serially)
         for part in partitions:
             self._write_partition(part, elem_slices)

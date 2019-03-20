@@ -288,7 +288,7 @@ class s3Dataset(netCDF4.Dataset):
 
             # if it's not a CFA file then just upload it.
             else:
-                put_netCDF_file(filename)
+                put_netCDF_file(self._file_details.filename)
         else:
             netCDF4.Dataset.close(self)
 
@@ -497,7 +497,7 @@ class s3Variable(object):
             tgt_arr = numpy.memmap(mmap_name, dtype=self._nc_var.dtype, mode='w+', shape=tuple(subset_shape))
         else:
             # create a normal array with no memory map
-            tgt_arr = numpy.zeros(subset_shape, dtype=self._nc_var.dtype)
+            tgt_arr = numpy.empty(subset_shape, dtype=self._nc_var.dtype)
 
         # create the interface for reading, pass in the target array
         read_interface = interface()

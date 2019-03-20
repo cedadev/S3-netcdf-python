@@ -12,6 +12,7 @@ from Queue import Queue
 
 import os
 import threading
+import time
 
 def _upload_task(subarray_file, fname):
     """Small task to upload and delete the cached file"""
@@ -60,6 +61,7 @@ class _threadInterface(_baseInterface):
                     t = threads[i]
                     if t.is_alive():
                         n_alive+=1
+                time.sleep(0.01)
 
             # collect the data
             while not return_queue.empty():
@@ -72,7 +74,7 @@ class _threadInterface(_baseInterface):
 
     def write(self, partitions, elem_slices):
         """Write (in parallel) the list of partitions which are in the subgroup determined by S3Variable.__setitem__"""
-        # form the partitionss into subsets based on the number of write threads
+        # form the partitions into subsets based on the number of write threads
         nsp = len(partitions)
         nwt = self._write_threads
         n_loops = int(0.99999 + float(nsp) / nwt)
@@ -100,6 +102,7 @@ class _threadInterface(_baseInterface):
                 for t in threads:
                     if t.isAlive():
                         n_alive+=1
+                time.sleep(0.1)
 
 
     def upload(self):
@@ -151,3 +154,4 @@ class _threadInterface(_baseInterface):
                 for t in threads:
                     if t.isAlive():
                         n_alive+=1
+                time.sleep(0.1)
