@@ -11,16 +11,11 @@ Date:   10/07/2017
 # This module inherits from the standard netCDF4 implementation
 # import as UniData netCDF4 to avoid confusion with the S3 module
 import netCDF4._netCDF4 as netCDF4
-from _s3netCDFIO import get_netCDF_file_details, put_netCDF_file, put_CFA_file
 from _s3Exceptions import *
-from _CFAClasses import *
-from _CFAFunctions import *
+from CFA._CFAClasses import *
+from CFA._CFAFunctions import *
 from _s3Client import s3ClientConfig
 from psutil import virtual_memory
-
-#from interfaces._baseInterface import _baseInterface as interface
-from interfaces._threadInterface import _threadInterface as interface
-#from interfaces._processInterface import _processInterface as interface
 
 import os
 from collections import OrderedDict

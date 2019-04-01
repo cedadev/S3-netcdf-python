@@ -12,7 +12,7 @@ import json
 import os
 from functools import reduce
 
-from SemSL.CFA._CFAClasses import *
+from S3netCDF4.CFA._CFAClasses import *
 
 def _get_axis_types(dataset, dimensions):
     """Get the axis types for the variable.

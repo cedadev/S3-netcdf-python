@@ -6,4 +6,3 @@ import numpy as np
 pyximport.install(setup_args={'include_dirs': np.get_include()})
 
 from ._s3netCDF4 import *
-from ._s3netCDFIO import *

@@ -1,14 +1,14 @@
 """
-Configuration management for Sem-SL.  Configuration is stored for each user in
+Configuration management for S3netCDF.  Configuration is stored for each user in
 a JSON file in their home directory: ~/.sem-sl.json
 """
 
-__copyright__ = "(C) 2012 Science and Technology Facilities Council"
+__copyright__ = "(C) 2019 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
 
 import os
 import json
-from _slExceptions import slIOException, slAPIException
+from _s3Exceptions import s3IOException, s3APIException
 
 def convert_file_size_string(value):
     """Convert a string containing a file size and suffix to an integer number
@@ -52,20 +52,20 @@ def interpret_config_file(node, keys_to_convert):
             node[key] = convert_file_size_string(item)
 
 
-class slConfig(object):
+class s3Config(object):
     """Class to read in config file, interpret it and make the information
     available.
     """
 
     def __init__(self):
-        """Initialise SemSL for this user by reading the config file from their
-        home directory.  Config file is called ~/.sem-sl.json"""
+        """Initialise S3netCDF4 for this user by reading the config file from their
+        home directory.  Config file is called ~/.s3nc.json"""
         # First read the JSON config file from the user home directory
         # get user home directory
         user_home = os.environ["HOME"]
 
         # create the path
-        sl_config_path = os.path.join(user_home, ".sem-sl.json")
+        sl_config_path = os.path.join(user_home, ".s3nc.json")
 
         # open the file
         try:
@@ -84,7 +84,7 @@ class slConfig(object):
             # close the config file
             fp.close()
         except IOError:
-            raise slIOException("User config file does not exist with path: " +
+            raise s3IOException("User config file does not exist with path: " +
                                 sl_config_path)
 
     def __getitem__(self, name):

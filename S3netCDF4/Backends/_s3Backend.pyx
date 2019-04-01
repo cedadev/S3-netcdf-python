@@ -1,11 +1,11 @@
-__copyright__ = "(C) 2012 Science and Technology Facilities Council"
+__copyright__ = "(C) 2019 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
 
 import boto3.client
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
-from S3-netCDF-python._s3Exceptions import s3IOException, s3APIException
+from S3netCDF4._s3Exceptions import s3IOException, s3APIException
 from _backend import Backend
 
 class s3Backend(Backend):

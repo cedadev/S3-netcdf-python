@@ -1,18 +1,18 @@
 """
-Connection management for Sem-SL.  Operation:
+Connection management for S3netCDF.  Operation:
 o. Connections are made via the backends and kept in a "Connection Pool".
 o. When connections are made they are locked and then can be released so that
    they can be reused without having to re-establish the connection.
 o. When a connection is closed it is removed from the pool.
 """
 
-__copyright__ = "(C) 2012 Science and Technology Facilities Council"
+__copyright__ = "(C) 2019 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
 
-from _slExceptions import slIOException, slAPIException
-from SemSL import Backends
+from _s3Exceptions import s3IOException, s3APIException
+from S3netCDF4 import Backends
 
-class slConnection(object):
+class s3Connection(object):
     """Object to store in the connection pool."""
     def __init__(self, alias, backend_name, conn):
         """Initialise, store the connection object.  Available is false."""
@@ -60,7 +60,7 @@ class slConnection(object):
         return not self._available
 
 
-class slConnectionManager(object):
+class s3ConnectionManager(object):
     """Connection manager for Sem-SL.  Stores connections in a connection pool
     and persists connections to remove the overhead of establishing the
     connection for every fragment when writing / reading."""
@@ -87,13 +87,13 @@ class slConnectionManager(object):
                 if endpoint in hosts[h]['alias']:
                     host_name = h
         except Exception as e:
-            raise slIOException("Error in config file {} {}".format(
+            raise s3IOException("Error in config file {} {}".format(
                                 self._sl_config["filename"],
                                 e))
 
         # check whether the url was found in the config file
         if host_name == None:
-            raise slIOException(("Error {} was not found as an alias in the"
+            raise s3IOException(("Error {} was not found as an alias in the"
                                  " user config file {} ").format(
                                    endpoint,
                                    self._sl_config["filename"])
@@ -107,19 +107,19 @@ class slConnectionManager(object):
             backend_name = host_config['backend']
             credentials = host_config['required_credentials']
         except:
-            raise slIOException("Error in config file {}".format(
+            raise s3IOException("Error in config file {}".format(
                                    self._s3_user_config["filename"])
                                )
         # Check that the desired backend is in the list
         if backend_name not in Backends.get_backend_ids():
-            raise slIOException("Error backend {} not found or not supported".format(
+            raise s3IOException("Error backend {} not found or not supported".format(
                                    backend_name)
                                )
         # Otherwise, try to create the backend
         try:
             backend = Backends.get_backend_from_id(backend_name)()
         except Exception as e:
-            raise slIOException("Error creating backend {} {}".format(
+            raise s3IOException("Error creating backend {} {}".format(
                                 backend_name, e)
                                )
 
@@ -141,7 +141,7 @@ class slConnectionManager(object):
             try:
                 conn = backend.connect(url_name, credentials)
             except Exception as e:
-                raise slIOException("Error connecting to backend {} {} {}".format(
+                raise s3IOException("Error connecting to backend {} {} {}".format(
                                     backend_name, url_name, e)
                                    )
 

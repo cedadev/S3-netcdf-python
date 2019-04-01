@@ -8,7 +8,7 @@ Date:   07/09/2017
 
 from _s3Client import *
 from _s3Exceptions import *
-from _CFAClasses import *
+from CFA._CFAClasses import *
 
 cdef class s3netCDFFile:
     """
