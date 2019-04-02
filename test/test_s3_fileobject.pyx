@@ -86,49 +86,49 @@ def _get_netCDF_filetype(input_bytes):
 
 # test identifying a remote filetype using subset
 
-y = s3FileObject(
-        "http://130.246.129.81:9000/databuckettest/testnctest.nc",
-        access_key="WTL17W3P2K3C7IYVX4W9",
-        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
-        mode="r"
-    )
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/databuckettest/testnctest.nc",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="r"
+#     )
+#
+# input_bytes = y.read(size=4)
+# format = _get_netCDF_filetype(input_bytes)
+# y.seek(0)
+# input_bytes = y.read()
+# tmp_file = "./test.nc"
+# temp_file = netCDF4.Dataset(
+#     tmp_file,
+#     'w',
+#     format=format[0],
+#     clobber=True
+# ).close()
+#
+# nc = netCDF4.Dataset(tmp_file, mode='r', memory=input_bytes, diskless=True)
+# #nc = netCDF4.Dataset(tmp_file)
+# #print(nc)
+#
+# # test read into
+# ba = bytearray()
+# n_read = y.readinto(ba)
+# #print(n_read)
+# nc = netCDF4.Dataset(tmp_file, mode='r', memory=ba, diskless=True)
+# #print(nc)
+# nc.close()
 
-input_bytes = y.read(size=4)
-format = _get_netCDF_filetype(input_bytes)
-y.seek(0)
-input_bytes = y.read()
-tmp_file = "./test.nc"
-temp_file = netCDF4.Dataset(
-    tmp_file,
-    'w',
-    format=format[0],
-    clobber=True
-).close()
+# # test short write
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/databuckettest/testwrite.txt",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="w"
+#     )
+# y.write("Hello and welcome.".encode('utf-8'))
+# y.write("\nBienvenue and Wilkommen.".encode('utf-8'))
+# y.close()
 
-nc = netCDF4.Dataset(tmp_file, mode='r', memory=input_bytes, diskless=True)
-#nc = netCDF4.Dataset(tmp_file)
-#print(nc)
-
-# test read into
-ba = bytearray()
-n_read = y.readinto(ba)
-#print(n_read)
-nc = netCDF4.Dataset(tmp_file, mode='r', memory=ba, diskless=True)
-#print(nc)
-nc.close()
-
-# test short write
-y = s3FileObject(
-        "http://130.246.129.81:9000/databuckettest/testwrite.txt",
-        access_key="WTL17W3P2K3C7IYVX4W9",
-        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
-        mode="w"
-    )
-y.write("Hello and welcome.".encode('utf-8'))
-y.write("\nBienvenue and Wilkommen.".encode('utf-8'))
-y.close()
-
-# test multipart (large) write
+# # test multipart (large) write
 z = s3FileObject(
         "http://130.246.129.81:9000/databuckettest/testwrite_big.txt",
         access_key="WTL17W3P2K3C7IYVX4W9",
@@ -139,4 +139,49 @@ z = s3FileObject(
 for a in range(0, int(1e6)):
     ba = bytearray('AAAAAA'.encode('utf-8'))
     z.write(ba)
-z.close()
+
+# testing destructor here by not calling close
+
+# test write to bucket that doesn't exist
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/buckettest/testnowrite.txt",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="w"
+#     )
+# y.write("Does not exist".encode('utf-8'))
+# y.write("\nDoes not exist.".encode('utf-8'))
+# y.close()
+
+# test writeline
+lines = ['The quick', 'brown fox', 'jumped over', 'the lazy', 'red hen']
+y = s3FileObject(
+        "http://130.246.129.81:9000/buckettest/thefox.txt",
+        access_key="WTL17W3P2K3C7IYVX4W9",
+        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+        mode="w"
+    )
+y.writelines(lines)
+y.close()
+#
+# # test readline
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/buckettest/thefox.txt",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="r"
+#     )
+# print(y.readlines())
+# y.close()
+
+# test readline
+y = s3FileObject(
+        "http://130.246.129.81:9000/buckettest/thefox.txt",
+        access_key="WTL17W3P2K3C7IYVX4W9",
+        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+        mode="r",
+        buffer_size=10
+    )
+for line in y:
+    print(line)
+y.close()

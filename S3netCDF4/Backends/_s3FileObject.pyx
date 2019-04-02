@@ -18,7 +18,7 @@ class s3FileObject(io.BufferedIOBase):
     """Maximum upload size for the object.  We can split large objects into
     multipart upload.  No parallelism, beyond what the boto3 library implements,
     at the moment."""
-    MAXIMUM_UPLOAD_SIZE = 5.1 * 1024 * 1024 # set at 5.1MB, minimum multipart
+    MAXIMUM_UPLOAD_SIZE = 5 * 1024 * 1024   # set at 5MB, minimum multipart
                                             # upload is 5MB
 
     """Static connection pool object - i.e. shared across the file objects."""
@@ -40,7 +40,8 @@ class s3FileObject(io.BufferedIOBase):
         path = "/".join(split_path[2:])
         return server, bucket, path
 
-    def __init__(self, uri, access_key, secret_key, mode='r'):
+    def __init__(self, uri, access_key, secret_key,
+                 mode='r', create_bucket=True, buffer_size=MAXIMUM_UPLOAD_SIZE):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
@@ -52,6 +53,9 @@ class s3FileObject(io.BufferedIOBase):
         self._bucket = bucket
         self._path = path
         self._seek_pos = 0
+        self._buffer_size = buffer_size
+        self._buffer_pos  = 0
+        self._buffer = bytearray()
 
         # if the connection returns None then either there isn't a connection to
         # the server in the pool, or there is no connection that is available
@@ -69,16 +73,18 @@ class s3FileObject(io.BufferedIOBase):
                 raise s3IOException(
                     "Could not connect to S3 endpoint {} {}".format(server, e)
                 )
-        # if this is a write method then create a bytes array and a multipart
-        # upload
+        # if this is a write method then create a bytes array
         if mode == 'w':
-            self._bytearray = bytearray()
-            self._object_write_position = 0
             self._current_part = 0
+            self._create_bucket = create_bucket
         elif mode == 'a' or mode == '+':
             raise s3APIException(
                 "Appending to files is not supported {}".format(path)
             )
+
+    def __exit__(self):
+        """Close the file on the destruction by the garbage collector"""
+        self.close()
 
     def _getsize(self):
         # Use content length in the head object to determine how the size of
@@ -94,6 +100,12 @@ class s3FileObject(io.BufferedIOBase):
                 "Could not get size of object {}".format(self._path)
             )
         return size
+
+    def _get_bucket_list(self):
+        # get the names of the buckets in a list
+        bl = self._conn_obj.conn.list_buckets()['Buckets'] # this returns a dict
+        bucket_list = [b['Name'] for b in bl]
+        return bucket_list
 
     def detach(self):
         """Separate the underlying raw stream from the buffer and return it.
@@ -116,11 +128,15 @@ class s3FileObject(io.BufferedIOBase):
             else:
                 # do the partial / range get version, and increment the seek
                 # pointer
+                range_end = self._seek_pos+size-1
+                file_size = self._getsize()
+                if range_end >= file_size:
+                    range_end = file_size-1
                 s3_object = self._conn_obj.conn.get_object(
                     Bucket = self._bucket,
                     Key = self._path,
                     Range = 'bytes={}-{}'.format(
-                        self._seek_pos, self._seek_pos+size
+                        self._seek_pos, range_end
                     )
                 )
                 self._seek_pos += size
@@ -159,12 +175,17 @@ class s3FileObject(io.BufferedIOBase):
         """
         # add to local, temporary bytearray
         size = len(b)
-        self._bytearray[self._seek_pos:self._seek_pos+size] = b
+        self._buffer[self._seek_pos:self._seek_pos+size] = b
         self._seek_pos += size
-        self._object_write_position += size
+        self._buffer_pos += size
         # test to see whether we should do a multipart upload now
-        if self._object_write_position > s3FileObject.MAXIMUM_UPLOAD_SIZE:
-
+        if self._buffer_pos > self._buffer_size:
+            # check to see if bucket needs to be created
+            if self._create_bucket:
+                # check whether the bucket exists
+                bucket_list = self._get_bucket_list()
+                if not self._bucket in bucket_list:
+                    self._conn_obj.conn.create_bucket(Bucket=self._bucket)
             # if the current part is 0 we have to create the multipart upload
             if self._current_part == 0:
                 response= self._conn_obj.conn.create_multipart_upload(
@@ -181,7 +202,7 @@ class s3FileObject(io.BufferedIOBase):
                 Key=self._path,
                 UploadId=self._upload_id,
                 PartNumber=self._current_part,
-                Body=self._bytearray
+                Body=self._buffer
             )
             # insert into the multipart info list of dictionaries
             self._multipart_info['Parts'].append(
@@ -191,8 +212,8 @@ class s3FileObject(io.BufferedIOBase):
                 }
             )
             # reset bytearray and position in it
-            self._object_write_position = 0
-            self._bytearray = bytearray()
+            self._buffer_pos = 0
+            self._buffer = bytearray()
             self._current_part += 1
         return size
 
@@ -256,30 +277,43 @@ class s3FileObject(io.BufferedIOBase):
 
     def flush(self):
         """Flush the write buffers of the stream.  This will upload the contents
-        of the final multipart upload of self._bytearray to the S3 store."""
+        of the final multipart upload of self._buffer to the S3 store."""
         if self._mode == 'w':
             # we have to check whether we are in a multipart upload or not
             if self._current_part == 0:
+                if self._create_bucket:
+                    # check whether the bucket exists
+                    bucket_list = self._get_bucket_list()
+                    if not self._bucket in bucket_list:
+                        self._conn_obj.conn.create_bucket(Bucket=self._bucket)
+
                 # just a regular upload
                 self._conn_obj.conn.put_object(
                     Bucket=self._bucket,
                     Key=self._path,
-                    Body=self._bytearray
+                    Body=self._buffer
                 )
             else:
                 # multipart upload
                 # upload the last part of the multipart upload here
-                self._conn_obj.conn.upload_part(
+                part = self._conn_obj.conn.upload_part(
                     Bucket=self._bucket,
                     Key=self._path,
                     UploadId=self._upload_id,
                     PartNumber=self._current_part,
-                    Body=self._bytearray
+                    Body=self._buffer
+                )
+                # insert into the multipart info list of dictionaries
+                self._multipart_info['Parts'].append(
+                    {
+                        'PartNumber' : self._current_part,
+                        'ETag' : part['ETag']
+                    }
                 )
                 # reset bytearray and position in it - just incase the stream is
                 # used again - it will overwrite this time, though!
                 self._seek_pos = 0
-                self._bytearray = bytearray()
+                self._buffer = bytearray()
                 # finalise the multipart upload
                 self._conn_obj.conn.complete_multipart_upload(
                     Bucket=self._bucket,
@@ -293,13 +327,49 @@ class s3FileObject(io.BufferedIOBase):
         raise IOError."""
         return 'r' in self._mode or '+' in self._mode
 
-    def readline(self, hint=-1):
-        """Not supported"""
-        raise io.UnsupportedOperation
+    def readline(self, size=-1):
+        """Read and return one line from the stream.
+        If size is specified, at most size bytes will be read."""
+        if 'b' in self._mode:
+            raise s3APIException(
+                "readline on a binary file is not permitted: {}".format(
+                    self._uri)
+                )
+        # only read a set number of bytes if size is passed in, otherwise
+        # read upto the buffer size
+        if size == -1:
+            size = self._buffer_size
 
-    def readlines(self, limit=-1):
-        """Not supported"""
-        raise io.UnsupportedOperation
+        # read the file into the buffer until a new line is found
+        keep_reading = True
+        while keep_reading:
+            if self._buffer_pos > self._getsize() - size:
+                return ""
+            buffer_ascii = self._buffer.decode()
+            if "\n" in buffer_ascii:
+                line = buffer_ascii.split("\n")[0]
+                self._buffer = self._buffer[len(line)+1:]
+                self._buffer_pos += len(line)
+                keep_reading = False
+            else:
+                # add to the buffer
+                buffer = self.read(size=size)
+                self._buffer += buffer
+        return line
+
+    def readlines(self, hint=-1):
+        """Read and return a list of lines from the stream. hint can be
+        specified to control the number of lines read: no more lines will be
+        read if the total size (in bytes/characters) of all lines so far exceeds
+        hint."""
+        if 'b' in self._mode:
+            raise s3APIException(
+                "readline on a binary file is not permitted: {}".format(
+                    self._uri)
+                )
+        # read the entire file in and decode it
+        lines = self.read().decode().split("\n")
+        return lines
 
     def truncate(self, size=None):
         """Not supported"""
@@ -311,5 +381,13 @@ class s3FileObject(io.BufferedIOBase):
         return True
 
     def writelines(self, lines):
-        """Not supported"""
-        raise io.UnsupportedOperation
+        """Write a list of lines to the stream."""
+        # first check if the file is binary or not
+        if 'b' in self._mode:
+            raise s3APIException(
+                "writelines on a binary file is not permitted: {}".format(
+                    self._uri)
+                )
+        # write all but the last line with a line break
+        for l in lines:
+            self.write((l+"\n").encode('utf-8'))
