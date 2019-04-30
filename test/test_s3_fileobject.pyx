@@ -129,16 +129,17 @@ def _get_netCDF_filetype(input_bytes):
 # y.close()
 
 # # test multipart (large) write
-z = s3FileObject(
-        "http://130.246.129.81:9000/databuckettest/testwrite_big.txt",
-        access_key="WTL17W3P2K3C7IYVX4W9",
-        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
-        mode="w"
-    )
-
-for a in range(0, int(1e6)):
-    ba = bytearray('AAAAAA'.encode('utf-8'))
-    z.write(ba)
+# z = s3FileObject(
+#         "http://130.246.129.81:9000/databuckettest/testwrite_big.txt",
+#         credentials=["accessKey":"WTL17W3P2K3C7IYVX4W9",
+#                      "secretKey":"VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9"
+#                     ],
+#         mode="w"
+#     )
+#
+# for a in range(0, int(1e6)):
+#     ba = bytearray('AAAAAA'.encode('utf-8'))
+#     z.write(ba)
 
 # testing destructor here by not calling close
 
@@ -154,15 +155,15 @@ for a in range(0, int(1e6)):
 # y.close()
 
 # test writeline
-lines = ['The quick', 'brown fox', 'jumped over', 'the lazy', 'red hen']
-y = s3FileObject(
-        "http://130.246.129.81:9000/buckettest/thefox.txt",
-        access_key="WTL17W3P2K3C7IYVX4W9",
-        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
-        mode="w"
-    )
-y.writelines(lines)
-y.close()
+# lines = ['The quick', 'brown fox', 'jumped over', 'the lazy', 'red hen']
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/buckettest/thefox.txt",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="w"
+#     )
+# y.writelines(lines)
+# y.close()
 #
 # # test readline
 # y = s3FileObject(
@@ -175,13 +176,140 @@ y.close()
 # y.close()
 
 # test readline
-y = s3FileObject(
-        "http://130.246.129.81:9000/buckettest/thefox.txt",
-        access_key="WTL17W3P2K3C7IYVX4W9",
-        secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
-        mode="r",
-        buffer_size=10
-    )
-for line in y:
-    print(line)
-y.close()
+# y = s3FileObject(
+#         "http://130.246.129.81:9000/buckettest/thefox.txt",
+#         access_key="WTL17W3P2K3C7IYVX4W9",
+#         secret_key="VUcT86fJFF0XTPtcrsnjUnvtM7Wj1N3cb9mALRZ9",
+#         mode="r",
+#         buffer_size=10
+#     )
+# for line in y:
+#     print(line)
+# y.close()
+
+# test caringo
+
+
+def test_write():
+    in_fh = open("/Users/dhk63261/Archive/cru/data/cru_ts/cru_ts_3.24.01/data/tmp/cru_ts3.24.01.1991.2000.tmp.dat.nc", mode='rb')
+    buf = in_fh.read()
+    in_fh.close()
+
+    import time
+
+    start=time.time()
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa1.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car:
+        car.write(buf)
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa2.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car2:
+        car2.write(buf)
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa3.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car3:
+        car3.write(buf)
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa4.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car4:
+        car4.write(buf)
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa5.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car5:
+        car5.write(buf)
+
+    end=time.time()
+    print(end-start)
+
+def test_read():
+
+    import time
+
+    start=time.time()
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa1.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="r"
+         ) as car:
+        buff = car.read()
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa2.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car2:
+        buff2 = car2.read()
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa3.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="r"
+         ) as car3:
+        buff3 = car3.read()
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa4.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car4:
+        buff4 = car4.read()
+
+    with s3FileObject(
+             "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefoxa5.nc",
+             credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+                          "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+                         },
+             mode="w"
+         ) as car5:
+        buff5 = car5.read()
+
+    end=time.time()
+    print(end-start)
+
+test_read()
+
+# car_read = s3FileObject(
+#         "http://cedadev-o.s3.jc.rl.ac.uk/buckettest/thefox.txt",
+#         credentials={"accessKey":"266e98d367a13ba66e940250e7f1f23f",
+#                      "secretKey":"yhVxDkTAHihjApn9xxSxfA9GJxngs1xqSragIIGn"
+#                     },
+#         mode="r"
+#     )
+#car_read.connect()
+#lines = car_read.readlines()
+#car_read.write(b'12')
+#print(lines)
