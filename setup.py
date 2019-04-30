@@ -9,7 +9,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 setup(
     name='S3netCDF4',
-    version='0.1',
+    version='0.1.1',
     packages=['S3netCDF4'],
     install_requires=[
       'numpy',
@@ -18,6 +18,7 @@ setup(
       'minio',
       'psutil',
     ],
+    directives= {'language_level':2},
     include_package_data=True,
     license='my License',  # example license
     description='A Django app to control retrival and cache managment for data held only on storage-d tape.',
