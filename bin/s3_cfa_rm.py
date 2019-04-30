@@ -8,16 +8,15 @@ import os
 
 from netCDF4 import Dataset
 
-from S3netCDF4._s3Client import s3Client, s3ClientConfig
 from S3netCDF4._s3netCDFIO import get_netCDF_file_details, get_endpoint_bucket_object
-from S3netCDF4._s3Exceptions import *
+from S3netCDF4._Exceptions import *
 from S3netCDF4._CFAClasses import *
 
 def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False):
     # Open the master-array file
     try:
         file_details = get_netCDF_file_details(master_array_fname, 'r', s3_client_config=client_config)
-    except s3IOException:
+    except IOException:
         print "File: {} not found.".format(master_array_fname)
         return
 
