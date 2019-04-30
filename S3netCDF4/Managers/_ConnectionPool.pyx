@@ -12,7 +12,7 @@ o. When connections are added they are locked and they can later be released so
 o. When a connection is closed it is removed from the pool.
 """
 from collections import namedtuple
-from S3netCDF4._s3Exceptions import s3APIException
+from S3netCDF4._Exceptions import APIException
 
 class ConnectionObject(object):
     """A small class to hold connection information."""
@@ -44,7 +44,6 @@ class ConnectionPool(object):
         # The value of the dictionary has to be a list, as multiple connections
         # to the same uri could be made.  Each entry is a named tuple containing
         # the connection and whether it is available or not
-
         if conn_uri in self._connection_pool:
             # need to keep track of which connection number we should use
             conn_num = len(self._connection_pool[conn_uri])
@@ -53,7 +52,6 @@ class ConnectionPool(object):
         else:
             conn_obj = ConnectionObject(conn, conn_uri, False, 0)
             self._connection_pool[conn_uri] = [conn_obj]
-
         return conn_obj
 
     def get(self, conn_uri):
@@ -78,7 +76,7 @@ class ConnectionPool(object):
         Args:
             conn : the ConnectionObject created in add"""
         if not conn_obj.uri in self._connection_pool:
-            raise s3APIException(
+            raise APIException(
                 "Connection is not in the connection pool {}".format(
                     conn_obj.uri
                 )
