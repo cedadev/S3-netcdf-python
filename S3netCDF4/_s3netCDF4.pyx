@@ -11,10 +11,9 @@ Date:   10/07/2017
 # This module inherits from the standard netCDF4 implementation
 # import as UniData netCDF4 to avoid confusion with the S3 module
 import netCDF4._netCDF4 as netCDF4
-from _s3Exceptions import *
+from _Exceptions import *
 from CFA._CFAClasses import *
 from CFA._CFAFunctions import *
-from _s3Client import s3ClientConfig
 from psutil import virtual_memory
 
 import os
@@ -124,7 +123,7 @@ class s3Dataset(netCDF4.Dataset):
                                      keepweakref=keepweakref, memory=None, **kwargs)
         else:
             # no other modes are supported
-            raise s3APIException("Mode " + mode + " not supported.")
+            raise APIException("Mode " + mode + " not supported.")
 
 
     def __enter__(self):
