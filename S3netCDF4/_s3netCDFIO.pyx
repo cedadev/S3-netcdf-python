@@ -7,7 +7,7 @@ Date:   07/09/2017
 """
 
 from _s3Client import *
-from _s3Exceptions import *
+from _Exceptions import *
 from CFA._CFAClasses import *
 
 cdef class s3netCDFFile:
@@ -78,7 +78,7 @@ def _get_netCDF_filetype(s3_client, bucket_name, object_name):
     try:
         s3_object = s3_client.get_partial(bucket_name, object_name, 0, 4)
     except BaseException:
-        raise s3IOException(s3_client.get_full_url(bucket_name, object_name) + " not found")
+        raise IOException(s3_client.get_full_url(bucket_name, object_name) + " not found")
 
     # start with NOT_NETCDF as the file_type
     file_version = 0
@@ -155,12 +155,12 @@ def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=Fals
 
             # Check whether the object exists
             if not s3_client.object_exists(s3_bucket_name, s3_object_name):
-                raise s3IOException("Error: " + full_url + " not found.")
+                raise IOException("Error: " + full_url + " not found.")
 
             # check whether this object is a netCDF file
             file_type, file_version = _get_netCDF_filetype(s3_client, s3_bucket_name, s3_object_name)
             if file_type == "NOT_NETCDF" or file_version == 0:
-                raise s3IOException("Error: " + full_url + " is not a netCDF file.")
+                raise IOException("Error: " + full_url + " is not a netCDF file.")
 
             # retain the filetype
             file_details.format = file_type
@@ -186,7 +186,7 @@ def get_netCDF_file_details(filename, filemode='r', diskless=False, persist=Fals
         # the created file in
         else:
             # no other modes are supported
-            raise s3APIException("Mode " + filemode + " not supported.")
+            raise APIException("Mode " + filemode + " not supported.")
 
     # otherwise just return the filename in file_details
     else:
