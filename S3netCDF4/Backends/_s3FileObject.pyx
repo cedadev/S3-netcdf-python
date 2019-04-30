@@ -5,11 +5,10 @@ import io
 from urllib.parse import urlparse, urljoin, urlsplit
 
 import boto3
-from botocore.client import Config
 from botocore.exceptions import ClientError
 
 from S3netCDF4.Managers._ConnectionPool import ConnectionPool
-from S3netCDF4._s3Exceptions import s3APIException, s3IOException
+from S3netCDF4._Exceptions import APIException, IOException
 
 class s3FileObject(io.BufferedIOBase):
     """Custom file object class, inheriting from Python io.Base, to read from
@@ -18,8 +17,8 @@ class s3FileObject(io.BufferedIOBase):
     """Maximum upload size for the object.  We can split large objects into
     multipart upload.  No parallelism, beyond what the boto3 library implements,
     at the moment."""
-    MAXIMUM_UPLOAD_SIZE = 5 * 1024 * 1024   # set at 5MB, minimum multipart
-                                            # upload is 5MB
+    MAXIMUM_UPLOAD_SIZE = 10 * 1024 * 1024   # set at 50MB, minimum multipart
+                                             # upload is 5MB
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -31,7 +30,7 @@ class s3FileObject(io.BufferedIOBase):
         url_p = urlparse(uri)
         # check that the uri contains a scheme and a netloc
         if url_p.scheme == '' or url_p.netloc == '':
-            raise s3APIException(
+            raise APIException(
                 "URI supplied to s3FileObject is not well-formed: {}". format(uri)
             )
         server = url_p.scheme + "://" + url_p.netloc
@@ -40,51 +39,34 @@ class s3FileObject(io.BufferedIOBase):
         path = "/".join(split_path[2:])
         return server, bucket, path
 
-    def __init__(self, uri, access_key, secret_key,
-                 mode='r', create_bucket=True, buffer_size=MAXIMUM_UPLOAD_SIZE):
+    def __init__(self, uri, credentials, mode='r', create_bucket=True,
+                 buffer_size=MAXIMUM_UPLOAD_SIZE):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
-        server, bucket, path = s3FileObject._get_server_bucket_object(uri)
-
-        self._conn_obj = s3FileObject._connection_pool.get(server)
+        self._server, self._bucket, self._path = s3FileObject._get_server_bucket_object(uri)
         self._closed = False        # set the file to be not closed
         self._mode = mode
-        self._bucket = bucket
-        self._path = path
         self._seek_pos = 0
         self._buffer_size = buffer_size
         self._buffer_pos  = 0
         self._buffer = bytearray()
+        self._credentials = credentials
+        self._create_bucket = create_bucket
 
-        # if the connection returns None then either there isn't a connection to
-        # the server in the pool, or there is no connection that is available
-        if self._conn_obj is None:
-            try:
-                s3c = boto3.client(
-                          "s3",
-                          endpoint_url=server,
-                          aws_access_key_id=access_key,
-                          aws_secret_access_key=secret_key
-                      )
-                # add the connection to the connection pool
-                self._conn_obj = s3FileObject._connection_pool.add(s3c, server)
-            except ClientError as e:
-                raise s3IOException(
-                    "Could not connect to S3 endpoint {} {}".format(server, e)
-                )
-        # if this is a write method then create a bytes array
-        if mode == 'w':
-            self._current_part = 0
-            self._create_bucket = create_bucket
-        elif mode == 'a' or mode == '+':
-            raise s3APIException(
-                "Appending to files is not supported {}".format(path)
-            )
+    def __enter__(self):
+        """Create the connection on an enter."""
+        self.connect()
+        return self
 
-    def __exit__(self):
-        """Close the file on the destruction by the garbage collector"""
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        """Close the file on the exit of a with statement, or by the garbage
+        collector removing the object."""
         self.close()
+        # check for any exceptions
+        if exc_type is not None:
+            return False
+        return True
 
     def _getsize(self):
         # Use content length in the head object to determine how the size of
@@ -95,17 +77,64 @@ class s3FileObject(io.BufferedIOBase):
                 Key=self._path
             )
             size = response['ContentLength']
-        except:
-            raise s3IOException(
+        except ClientError as e:
+            raise IOException(
                 "Could not get size of object {}".format(self._path)
             )
+        except AttributeError as e:
+            self._handle_connection_exception(e)
         return size
 
     def _get_bucket_list(self):
         # get the names of the buckets in a list
-        bl = self._conn_obj.conn.list_buckets()['Buckets'] # this returns a dict
-        bucket_list = [b['Name'] for b in bl]
+        try:
+            bl = self._conn_obj.conn.list_buckets()['Buckets'] # this returns a dict
+            bucket_list = [b['Name'] for b in bl]
+        except AttributeError as e:
+            self._handle_connection_exception(e)
         return bucket_list
+
+    def _handle_connection_exception(self, e):
+        # Check if connection made
+        if ("_conn_obj" in e.args[0] or "_current_part" in e.args[0]):
+            raise APIException(
+                "Connection to S3 server is not established.  Use either the "
+                ".connect method or a with statement."
+            )
+        else:
+            # other AttributeError - handle that separately
+            raise e
+
+    def connect(self):
+        """Connect to the s3 server with the details passed in via the __init__
+        method."""
+        # if the connection returns None then either there isn't a connection to
+        # the server in the pool, or there is no connection that is available
+        self._conn_obj = s3FileObject._connection_pool.get(self._server)
+        if self._conn_obj is None:
+            try:
+                s3c = boto3.client(
+                          "s3",
+                          endpoint_url=self._server,
+                          aws_access_key_id=self._credentials["accessKey"],
+                          aws_secret_access_key=self._credentials["secretKey"]
+                      )
+                # add the connection to the connection pool
+                self._conn_obj = s3FileObject._connection_pool.add(
+                    s3c, self._server
+                )
+            except ClientError as e:
+                raise IOException(
+                    "Could not connect to S3 endpoint {} {}".format(
+                        self._server, e)
+                )
+        # if this is a write method then create a bytes array
+        if self._mode == 'w':
+            self._current_part = 1
+        elif self._mode == 'a' or self._mode == '+':
+            raise APIException(
+                "Appending to files is not supported {}".format(self._path)
+            )
 
     def detach(self):
         """Separate the underlying raw stream from the buffer and return it.
@@ -142,9 +171,11 @@ class s3FileObject(io.BufferedIOBase):
                 self._seek_pos += size
                 body = s3_object['Body']
         except ClientError as e:
-            raise s3IOException(
+            raise IOException(
                 "Could not read from object {} {}".format(self._path, e)
             )
+        except AttributeError as e:
+            self._handle_connection_exception(e)
         return body.read()
 
     def read1(self, size=-1):
@@ -158,7 +189,7 @@ class s3FileObject(io.BufferedIOBase):
         that the bytesbuffer is big enough to hold the entire file."""
         # get the size of the file
         size = self._getsize()
-        b[:size] = self.read()
+        b[:size] = self.read(size)
         return size
 
     def readinto1(self, b):
@@ -173,48 +204,60 @@ class s3FileObject(io.BufferedIOBase):
         and increment the seek_pos.
         This data will be uploaded to an object when .flush is called.
         """
-        # add to local, temporary bytearray
-        size = len(b)
-        self._buffer[self._seek_pos:self._seek_pos+size] = b
-        self._seek_pos += size
-        self._buffer_pos += size
-        # test to see whether we should do a multipart upload now
-        if self._buffer_pos > self._buffer_size:
-            # check to see if bucket needs to be created
-            if self._create_bucket:
-                # check whether the bucket exists
-                bucket_list = self._get_bucket_list()
-                if not self._bucket in bucket_list:
-                    self._conn_obj.conn.create_bucket(Bucket=self._bucket)
-            # if the current part is 0 we have to create the multipart upload
-            if self._current_part == 0:
-                response= self._conn_obj.conn.create_multipart_upload(
-                    Bucket = self._bucket,
-                    Key = self._path
-                )
-                self._upload_id = response['UploadId']
-                # we need to keep a track of the multipart info
-                self._multipart_info = {'Parts' : []}
+        if self._mode != "w":
+            raise APIException(
+                "Trying to write to a read only file, where mode != 'w'."
+            )
+        try:
+            # add to local, temporary bytearray
+            size = len(b)
+            self._buffer[self._seek_pos:self._seek_pos+size] = b
+            self._seek_pos += size
+            self._buffer_pos += size
+            # test to see whether we should do a multipart upload now
+            if self._buffer_pos > self._buffer_size:
+                # check to see if bucket needs to be created
+                if self._create_bucket:
+                    # check whether the bucket exists
+                    bucket_list = self._get_bucket_list()
+                    if not self._bucket in bucket_list:
+                        self._conn_obj.conn.create_bucket(Bucket=self._bucket)
+                # if the current part is 0 we have to create the multipart upload
+                if self._current_part == 1:
+                    response= self._conn_obj.conn.create_multipart_upload(
+                        Bucket = self._bucket,
+                        Key = self._path
+                    )
+                    self._upload_id = response['UploadId']
+                    # we need to keep a track of the multipart info
+                    self._multipart_info = {'Parts' : []}
 
-            # upload here
-            part = self._conn_obj.conn.upload_part(
-                Bucket=self._bucket,
-                Key=self._path,
-                UploadId=self._upload_id,
-                PartNumber=self._current_part,
-                Body=self._buffer
+                # upload here
+                part = self._conn_obj.conn.upload_part(
+                    Bucket=self._bucket,
+                    Key=self._path,
+                    UploadId=self._upload_id,
+                    PartNumber=self._current_part,
+                    Body=self._buffer
+                )
+                # insert into the multipart info list of dictionaries
+                self._multipart_info['Parts'].append(
+                    {
+                        'PartNumber' : self._current_part,
+                        'ETag' : part['ETag']
+                    }
+                )
+                # reset bytearray and position in it
+                self._buffer_pos = 0
+                self._buffer = bytearray()
+                self._current_part += 1
+        except ClientError as e:
+            raise IOException(
+                "Could not write to object {} {}".format(self._path, e)
             )
-            # insert into the multipart info list of dictionaries
-            self._multipart_info['Parts'].append(
-                {
-                    'PartNumber' : self._current_part,
-                    'ETag' : part['ETag']
-                }
-            )
-            # reset bytearray and position in it
-            self._buffer_pos = 0
-            self._buffer = bytearray()
-            self._current_part += 1
+        except AttributeError as e:
+            self._handle_connection_exception(e)
+
         return size
 
     def close(self):
@@ -224,11 +267,14 @@ class s3FileObject(io.BufferedIOBase):
 
         As a convenience, it is allowed to call this method more than once; only
         the first call, however, will have an effect."""
-        if not self._closed:
-            # self.flush will upload the bytesarray to the S3 store
-            self.flush()
-            s3FileObject._connection_pool.release(self._conn_obj)
-            self._closed = True
+        try:
+            if not self._closed:
+                # self.flush will upload the bytesarray to the S3 store
+                self.flush()
+                s3FileObject._connection_pool.release(self._conn_obj)
+                self._closed = True
+        except AttributeError as e:
+            self._handle_connection_exception(e)
 
     def seek(self, offset, whence=io.SEEK_SET):
         """Change the stream position to the given byte offset. offset is
@@ -246,16 +292,16 @@ class s3FileObject(io.BufferedIOBase):
         if whence == io.SEEK_SET:
             # range check
             if (offset >= size):
-                raise s3IOException(error_string.format(self._path))
+                raise IOException(error_string.format(self._path))
             self._seek_pos = offset
         elif whence == io.SEEK_CUR:
             if (self._seek_pos + offset >= size):
-                raise s3IOException(error_string.format(self._path))
+                raise IOException(error_string.format(self._path))
             self._seek_pos += offset
         elif whence == io.SEEK_END:
             seek_pos = size - offset
             if seek_pos < 0:
-                raise s3IOException(error_string.format(self._path))
+                raise IOException(error_string.format(self._path))
             else:
                 self._seek_pos = seek_pos
 
@@ -278,49 +324,52 @@ class s3FileObject(io.BufferedIOBase):
     def flush(self):
         """Flush the write buffers of the stream.  This will upload the contents
         of the final multipart upload of self._buffer to the S3 store."""
-        if self._mode == 'w':
-            # we have to check whether we are in a multipart upload or not
-            if self._current_part == 0:
-                if self._create_bucket:
-                    # check whether the bucket exists
-                    bucket_list = self._get_bucket_list()
-                    if not self._bucket in bucket_list:
-                        self._conn_obj.conn.create_bucket(Bucket=self._bucket)
+        try:
+            if self._mode == 'w':
+                # we have to check whether we are in a multipart upload or not
+                if self._current_part == 1:
+                    if self._create_bucket:
+                        # check whether the bucket exists
+                        bucket_list = self._get_bucket_list()
+                        if not self._bucket in bucket_list:
+                            self._conn_obj.conn.create_bucket(Bucket=self._bucket)
 
-                # just a regular upload
-                self._conn_obj.conn.put_object(
-                    Bucket=self._bucket,
-                    Key=self._path,
-                    Body=self._buffer
-                )
-            else:
-                # multipart upload
-                # upload the last part of the multipart upload here
-                part = self._conn_obj.conn.upload_part(
-                    Bucket=self._bucket,
-                    Key=self._path,
-                    UploadId=self._upload_id,
-                    PartNumber=self._current_part,
-                    Body=self._buffer
-                )
-                # insert into the multipart info list of dictionaries
-                self._multipart_info['Parts'].append(
-                    {
-                        'PartNumber' : self._current_part,
-                        'ETag' : part['ETag']
-                    }
-                )
-                # reset bytearray and position in it - just incase the stream is
-                # used again - it will overwrite this time, though!
-                self._seek_pos = 0
-                self._buffer = bytearray()
-                # finalise the multipart upload
-                self._conn_obj.conn.complete_multipart_upload(
-                    Bucket=self._bucket,
-                    Key=self._path,
-                    UploadId=self._upload_id,
-                    MultipartUpload=self._multipart_info
-                )
+                    # just a regular upload
+                    self._conn_obj.conn.put_object(
+                        Bucket=self._bucket,
+                        Key=self._path,
+                        Body=self._buffer
+                    )
+                else:
+                    # multipart upload
+                    # upload the last part of the multipart upload here
+                    part = self._conn_obj.conn.upload_part(
+                        Bucket=self._bucket,
+                        Key=self._path,
+                        UploadId=self._upload_id,
+                        PartNumber=self._current_part,
+                        Body=self._buffer
+                    )
+                    # insert into the multipart info list of dictionaries
+                    self._multipart_info['Parts'].append(
+                        {
+                            'PartNumber' : self._current_part,
+                            'ETag' : part['ETag']
+                        }
+                    )
+                    # reset bytearray and position in it - just incase the stream is
+                    # used again - it will overwrite this time, though!
+                    self._seek_pos = 0
+                    self._buffer = bytearray()
+                    # finalise the multipart upload
+                    self._conn_obj.conn.complete_multipart_upload(
+                        Bucket=self._bucket,
+                        Key=self._path,
+                        UploadId=self._upload_id,
+                        MultipartUpload=self._multipart_info
+                    )
+        except AttributeError as e:
+            self._handle_connection_exception(e)
 
     def readable(self):
         """Return True if the stream can be read from. If False, read() will
@@ -331,7 +380,7 @@ class s3FileObject(io.BufferedIOBase):
         """Read and return one line from the stream.
         If size is specified, at most size bytes will be read."""
         if 'b' in self._mode:
-            raise s3APIException(
+            raise APIException(
                 "readline on a binary file is not permitted: {}".format(
                     self._uri)
                 )
@@ -363,7 +412,7 @@ class s3FileObject(io.BufferedIOBase):
         read if the total size (in bytes/characters) of all lines so far exceeds
         hint."""
         if 'b' in self._mode:
-            raise s3APIException(
+            raise APIException(
                 "readline on a binary file is not permitted: {}".format(
                     self._uri)
                 )
@@ -384,7 +433,7 @@ class s3FileObject(io.BufferedIOBase):
         """Write a list of lines to the stream."""
         # first check if the file is binary or not
         if 'b' in self._mode:
-            raise s3APIException(
+            raise APIException(
                 "writelines on a binary file is not permitted: {}".format(
                     self._uri)
                 )
