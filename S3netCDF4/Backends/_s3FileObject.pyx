@@ -4,8 +4,8 @@ __license__ = "BSD - see LICENSE file in top-level directory"
 import io
 from urllib.parse import urlparse, urljoin, urlsplit
 
-import boto3
 from botocore.exceptions import ClientError
+import botocore.session
 
 from S3netCDF4.Managers._ConnectionPool import ConnectionPool
 from S3netCDF4._Exceptions import APIException, IOException
@@ -31,7 +31,7 @@ class s3FileObject(io.BufferedIOBase):
         # check that the uri contains a scheme and a netloc
         if url_p.scheme == '' or url_p.netloc == '':
             raise APIException(
-                "URI supplied to s3FileObject is not well-formed: {}". format(uri)
+                "URI supplied to s3FileObject is not well-formed: {}".format(uri)
             )
         server = url_p.scheme + "://" + url_p.netloc
         split_path = url_p.path.split("/")
@@ -113,7 +113,8 @@ class s3FileObject(io.BufferedIOBase):
         self._conn_obj = s3FileObject._connection_pool.get(self._server)
         if self._conn_obj is None:
             try:
-                s3c = boto3.client(
+                session = botocore.session.get_session()
+                s3c = session.create_client(
                           "s3",
                           endpoint_url=self._server,
                           aws_access_key_id=self._credentials["accessKey"],
@@ -135,6 +136,7 @@ class s3FileObject(io.BufferedIOBase):
             raise APIException(
                 "Appending to files is not supported {}".format(self._path)
             )
+        return True
 
     def detach(self):
         """Separate the underlying raw stream from the buffer and return it.
