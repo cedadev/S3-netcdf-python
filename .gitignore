@@ -102,3 +102,5 @@ ENV/
 
 archive/
 .idea/
+
+.s3config.json

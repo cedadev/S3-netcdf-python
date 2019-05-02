@@ -35,8 +35,20 @@ class s3FileObject(io.BufferedIOBase):
             )
         server = url_p.scheme + "://" + url_p.netloc
         split_path = url_p.path.split("/")
-        bucket = split_path[1]
-        path = "/".join(split_path[2:])
+        # get the bucket
+        try:
+            bucket = split_path[1]
+        except IndexError as e:
+            raise APIException(
+                "URI supplied has no bucket contained within it: {}".format(uri)
+            )
+        # get the path
+        try:
+            path = "/".join(split_path[2:])
+        except IndexError as e:
+            raise APIException(
+                "URI supplied has no path contained within it: {}".format(uri)
+            )
         return server, bucket, path
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
@@ -71,12 +83,16 @@ class s3FileObject(io.BufferedIOBase):
     def _getsize(self):
         # Use content length in the head object to determine how the size of
         # the file / object
+        # If we are writing then the size should be the buffer size
         try:
-            response = self._conn_obj.conn.head_object(
-                Bucket=self._bucket,
-                Key=self._path
-            )
-            size = response['ContentLength']
+            if 'w' in self._mode:
+                size = self._buffer_size
+            else:
+                response = self._conn_obj.conn.head_object(
+                    Bucket=self._bucket,
+                    Key=self._path
+                )
+                size = response['ContentLength']
         except ClientError as e:
             raise IOException(
                 "Could not get size of object {}".format(self._path)
@@ -130,9 +146,9 @@ class s3FileObject(io.BufferedIOBase):
                         self._server, e)
                 )
         # if this is a write method then create a bytes array
-        if self._mode == 'w':
+        if 'w' in self._mode:
             self._current_part = 1
-        elif self._mode == 'a' or self._mode == '+':
+        elif 'a' in self._mode or '+' in self._mode:
             raise APIException(
                 "Appending to files is not supported {}".format(self._path)
             )
@@ -206,7 +222,7 @@ class s3FileObject(io.BufferedIOBase):
         and increment the seek_pos.
         This data will be uploaded to an object when .flush is called.
         """
-        if self._mode != "w":
+        if 'w' not in self._mode:
             raise APIException(
                 "Trying to write to a read only file, where mode != 'w'."
             )
@@ -277,6 +293,7 @@ class s3FileObject(io.BufferedIOBase):
                 self._closed = True
         except AttributeError as e:
             self._handle_connection_exception(e)
+        return True
 
     def seek(self, offset, whence=io.SEEK_SET):
         """Change the stream position to the given byte offset. offset is
@@ -290,22 +307,31 @@ class s3FileObject(io.BufferedIOBase):
         Return the new absolute position.
         """
         size = self._getsize()
-        error_string = "Seek is outside file size bounds {}"
+        error_string = "Seek {} is outside file size bounds 0->{} for file {}"
+        seek_pos = self._seek_pos
         if whence == io.SEEK_SET:
             # range check
-            if (offset >= size):
-                raise IOException(error_string.format(self._path))
-            self._seek_pos = offset
+            seek_pos = offset
         elif whence == io.SEEK_CUR:
-            if (self._seek_pos + offset >= size):
-                raise IOException(error_string.format(self._path))
-            self._seek_pos += offset
+            seek_pos += offset
         elif whence == io.SEEK_END:
             seek_pos = size - offset
-            if seek_pos < 0:
-                raise IOException(error_string.format(self._path))
-            else:
-                self._seek_pos = seek_pos
+
+        # range checks
+        if (seek_pos >= size):
+            raise IOException(error_string.format(
+                seek_pos,
+                size,
+                self._path)
+            )
+        elif (seek_pos < 0):
+            raise IOException(error_string.format(
+                seek_pos,
+                size,
+                self._path)
+            )
+        self._seek_pos = seek_pos
+        return self._seek_pos
 
     def seekable(self):
         """We can seek in s3 streams using the range get and range put features.
@@ -327,7 +353,7 @@ class s3FileObject(io.BufferedIOBase):
         """Flush the write buffers of the stream.  This will upload the contents
         of the final multipart upload of self._buffer to the S3 store."""
         try:
-            if self._mode == 'w':
+            if 'w' in self._mode:
                 # we have to check whether we are in a multipart upload or not
                 if self._current_part == 1:
                     if self._create_bucket:
@@ -372,6 +398,7 @@ class s3FileObject(io.BufferedIOBase):
                     )
         except AttributeError as e:
             self._handle_connection_exception(e)
+        return True
 
     def readable(self):
         """Return True if the stream can be read from. If False, read() will
@@ -387,9 +414,9 @@ class s3FileObject(io.BufferedIOBase):
                     self._uri)
                 )
         # only read a set number of bytes if size is passed in, otherwise
-        # read upto the buffer size
+        # read upto the file size
         if size == -1:
-            size = self._buffer_size
+            size = self._getsize()
 
         # read the file into the buffer until a new line is found
         keep_reading = True
@@ -429,7 +456,7 @@ class s3FileObject(io.BufferedIOBase):
     def writable(self):
         """Return True if the stream supports writing. If False, write() and
         truncate() will raise IOError."""
-        return True
+        return 'w' in self._mode
 
     def writelines(self, lines):
         """Write a list of lines to the stream."""
@@ -442,3 +469,4 @@ class s3FileObject(io.BufferedIOBase):
         # write all but the last line with a line break
         for l in lines:
             self.write((l+"\n").encode('utf-8'))
+        return True
