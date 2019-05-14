@@ -5,5 +5,3 @@ import pyximport
 import numpy as np
 pyximport.install(setup_args={'include_dirs': np.get_include()},
                   language_level=2)
-
-from ._s3netCDF4 import *

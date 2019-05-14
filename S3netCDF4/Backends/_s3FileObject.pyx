@@ -65,6 +65,8 @@ class s3FileObject(io.BufferedIOBase):
         self._buffer = bytearray()
         self._credentials = credentials
         self._create_bucket = create_bucket
+        # indicate it's a remote dataset
+        self._remote = True
 
     def __enter__(self):
         """Create the connection on an enter."""
@@ -145,8 +147,24 @@ class s3FileObject(io.BufferedIOBase):
                     "Could not connect to S3 endpoint {} {}".format(
                         self._server, e)
                 )
-        # if this is a write method then create a bytes array
-        if 'w' in self._mode:
+        if 'r' in self._mode:
+            # if this is a read method then check the file exists
+            response = s3c.list_objects_v2(
+                Bucket=self._bucket,
+                Prefix=self._path
+            )
+            exists = False
+            for obj in response.get('Contents', []):
+                if obj['Key'] == self._path:
+                    exists = True
+            if not exists:
+                raise IOException(
+                    "Object does not exist: {}/{}/{}".format(
+                        self._server, self._bucket, self._path
+                    )
+                )
+        elif 'w' in self._mode:
+            # if this is a write method then create a bytes array
             self._current_part = 1
         elif 'a' in self._mode or '+' in self._mode:
             raise APIException(

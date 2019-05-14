@@ -1,7 +1,6 @@
 from S3netCDF4.Backends._s3FileObject import s3FileObject
 from S3netCDF4._Exceptions import IOException, APIException
 import unittest
-import random
 import json
 import io
 
@@ -38,7 +37,7 @@ class s3FileObjectGeneralTest(object):
         self.assertTrue(self.s3c.connect())
         self.assertTrue(self.s3c.readable())
 
-    def test_trucate(self):
+    def test_truncate(self):
         self.assertTrue(self.s3c.connect())
         self.assertRaises(io.UnsupportedOperation, self.s3c.truncate)
 

@@ -57,7 +57,7 @@ class FileManager(object):
         else:
             # try opening just on the file system
             try:
-                fh = open(url)
+                fh = open(url, mode=mode)
             except:
                 raise IOException(
                     "URL or file {} is not found, or host {} is not present"

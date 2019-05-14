@@ -153,6 +153,7 @@ class s3aioFileObject(object):
             raise APIException(
                 "Appending to files is not supported {}".format(self._path)
             )
+        return True
 
     def detach(self):
         """Separate the underlying raw stream from the buffer and return it.
