@@ -98,15 +98,23 @@ class s3t1FileObjectWriteTest(unittest.TestCase, s3FileObjectGeneralTest):
         self.s3c = s3FileObject(
             cfg["url"] + "/buckettest/thefox1a.nc",
             credentials=cfg["credentials"],
-            mode="rw"
+            mode="w"
         )
 
         # for writing with the write line methods
         self.s3c_lines = s3FileObject(
             cfg["url"] + "/buckettest/thefox1b.txt",
             credentials=cfg["credentials"],
-            mode="rw"
+            mode="w"
         )
+
+    def test_seek(self):
+        with self.assertRaises(IOException):
+            self.s3c.seek(0)
+
+    def test_readable(self):
+        self.assertTrue(self.s3c.connect())
+        self.assertFalse(self.s3c.readable())
 
     def test_writable(self):
         self.assertTrue(self.s3c.connect())
@@ -148,7 +156,7 @@ class s3t2FileObjectReadTest(unittest.TestCase, s3FileObjectGeneralTest):
         cfg = json.load(fh)
         fh.close()
         self.s3c = s3FileObject(
-            cfg["url"] + "/buckettest/thefox1a.nc",
+            cfg["url"] + "/buckettest/thefox2a.nc",
             credentials=cfg["credentials"],
             mode="r"
         )

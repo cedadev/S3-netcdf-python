@@ -8,10 +8,11 @@ Date:   07/09/2017
 
 from _Exceptions import *
 from CFA._CFAClasses import *
+import asyncio
 
-def _get_netCDF_filetype(file_handle):
+def _interpret_netCDF_filetype(data):
     """
-       Read the first four bytes from the stream and interpret the magic number.
+       Pass in the firstfour bytes from the stream and interpret the magic number.
        See NC_interpret_magic_number in netcdf-c/libdispatch/dfile.c
 
        Check that it is a netCDF file before fetching any data and
@@ -25,11 +26,6 @@ def _get_netCDF_filetype(file_handle):
 
        :return: string filetype
     """
-    # use the file handle to seek to 0 and read the first 6 bytes - these are
-    # the netCDF identifier header
-    file_handle.seek(0)
-    data = file_handle.read(6)
-
     # start with NOT_NETCDF as the file_type
     file_version = 0
     file_type = 'NOT_NETCDF'
@@ -57,6 +53,4 @@ def _get_netCDF_filetype(file_handle):
     else:
         file_type = 'NOT_NETCDF'
         file_version = 0
-    # seek back to 0
-    file_handle.seek(0)
     return file_type, file_version

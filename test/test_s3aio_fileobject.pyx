@@ -220,6 +220,6 @@ class s3aiot1FileObjectWriteTest(unittest.TestCase, s3aioFileObjectGeneralTest):
                 self.fail("s3aioFileObject.write returned zero")
 
 if __name__ == '__main__':
-    loop = asyncio.new_event_loop()
+    loop = asyncio.get_event_loop()
     unittest.main()
     loop.close()

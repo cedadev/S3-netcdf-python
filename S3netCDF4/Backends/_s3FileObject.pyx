@@ -15,10 +15,12 @@ class s3FileObject(io.BufferedIOBase):
     an S3 object store / AWS cloud storage."""
 
     """Maximum upload size for the object.  We can split large objects into
-    multipart upload.  No parallelism, beyond what the boto3 library implements,
-    at the moment."""
-    MAXIMUM_UPLOAD_SIZE = 10 * 1024 * 1024   # set at 50MB, minimum multipart
-                                             # upload is 5MB
+    multipart upload.  No parallelism, beyond what the botocore library
+    implements, at the moment."""
+    MAXIMUM_PART_SIZE = 50 * 1024 * 1024 # set at 50MB, minimum multipart
+                                         # upload is 5MB
+    MAXIMUM_PARTS_BEFORE_UPLOAD = 4      # the number of parts written to before
+                                         # they are uploaded
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -52,21 +54,20 @@ class s3FileObject(io.BufferedIOBase):
         return server, bucket, path
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
-                 buffer_size=MAXIMUM_UPLOAD_SIZE):
+                 part_size=MAXIMUM_PART_SIZE,
+                 max_parts=MAXIMUM_PARTS_BEFORE_UPLOAD):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
         self._server, self._bucket, self._path = s3FileObject._get_server_bucket_object(uri)
-        self._closed = False        # set the file to be not closed
+        self._closed = False            # set the file to be not closed
         self._mode = mode
         self._seek_pos = 0
-        self._buffer_size = buffer_size
-        self._buffer_pos  = 0
-        self._buffer = bytearray()
+        self._part_size = part_size
+        self._max_parts = max_parts
+        self._buffer = [io.BytesIO()]   # have a list of objects that can stream
         self._credentials = credentials
         self._create_bucket = create_bucket
-        # indicate it's a remote dataset
-        self._remote = True
 
     def __enter__(self):
         """Create the connection on an enter."""
@@ -88,7 +89,7 @@ class s3FileObject(io.BufferedIOBase):
         # If we are writing then the size should be the buffer size
         try:
             if 'w' in self._mode:
-                size = self._buffer_size
+                size = self._part_size
             else:
                 response = self._conn_obj.conn.head_object(
                     Bucket=self._bucket,
@@ -149,7 +150,7 @@ class s3FileObject(io.BufferedIOBase):
                 )
         if 'r' in self._mode:
             # if this is a read method then check the file exists
-            response = s3c.list_objects_v2(
+            response = self._conn_obj.conn.list_objects_v2(
                 Bucket=self._bucket,
                 Prefix=self._path
             )
@@ -163,10 +164,10 @@ class s3FileObject(io.BufferedIOBase):
                         self._server, self._bucket, self._path
                     )
                 )
-        elif 'w' in self._mode:
+        if 'w' in self._mode:
             # if this is a write method then create a bytes array
             self._current_part = 1
-        elif 'a' in self._mode or '+' in self._mode:
+        if 'a' in self._mode or '+' in self._mode:
             raise APIException(
                 "Appending to files is not supported {}".format(self._path)
             )
@@ -232,6 +233,90 @@ class s3FileObject(io.BufferedIOBase):
         """Just call readinto"""
         return self.readinto(b)
 
+    def _multipart_upload_from_buffer(self):
+        """Do a multipart upload from the buffer.
+        There are two cases:
+            1.  The size is exactly the same size as the self._part_size
+            2.  The size is greater than the self._part_size
+        """
+        # check to see if bucket needs to be created
+        if self._create_bucket:
+            # check whether the bucket exists
+            bucket_list = self._get_bucket_list()
+            if not self._bucket in bucket_list:
+                self._conn_obj.conn.create_bucket(Bucket=self._bucket)
+
+        # if the current part is 1 we have to create the multipart upload
+        if self._current_part == 1:
+            response = self._conn_obj.conn.create_multipart_upload(
+                Bucket = self._bucket,
+                Key = self._path
+            )
+            self._upload_id = response['UploadId']
+            # we need to keep a track of the multipart info
+            self._multipart_info = {'Parts' : []}
+
+        # upload from a buffer - do we need to split into more than one
+        # multiparts?  Remember: self._buffer is a list of BytesIO objects
+
+        new_buffer = []
+        for buffer_part in range(0, len(self._buffer)):
+            # is the current part of the buffer larger than the maximum
+            # upload size? split if it is
+            data_buf = self._buffer[buffer_part]
+            data_len = data_buf.tell()
+            if data_len >= s3FileObject.MAXIMUM_PART_SIZE:
+                data_buf.seek(0)
+                data_pos = 0
+                # split the file up
+                while data_pos < data_len:
+                    new_buffer.append(io.BytesIO())
+                    # copy the data - don't overstep the buffer
+                    if data_pos + s3FileObject.MAXIMUM_PART_SIZE >= data_len:
+                        sub_data = data_buf.read(data_len-data_pos)
+                    else:
+                        sub_data = data_buf.read(s3FileObject.MAXIMUM_PART_SIZE)
+                    new_buffer[-1].write(sub_data)
+                    # increment to next
+                    data_pos += s3FileObject.MAXIMUM_PART_SIZE
+
+                # free the old memory
+                self._buffer[buffer_part].close()
+            else:
+                new_buffer.append(self._buffer[buffer_part])
+
+        self._buffer = new_buffer
+        buffer_part = 0
+
+        while (buffer_part < len(self._buffer)):
+            # seek in the BytesIO buffer to get to the beginning after the
+            # writing
+            self._buffer[buffer_part].seek(0)
+            # upload here
+            part = self._conn_obj.conn.upload_part(
+                Bucket=self._bucket,
+                Key=self._path,
+                UploadId=self._upload_id,
+                PartNumber=self._current_part,
+                Body=self._buffer[buffer_part]
+            )
+            # insert into the multipart info list of dictionaries
+            self._multipart_info['Parts'].append(
+                {
+                    'PartNumber' : self._current_part,
+                    'ETag' : part['ETag']
+                }
+            )
+            self._current_part += 1
+            buffer_part += 1
+
+        # reset all the byte buffers and their positions
+        for buffer_part in range(0, len(self._buffer)):
+            self._buffer[buffer_part].close()
+        self._buffer = [io.BytesIO()]
+        self._seek_pos = 0
+        self._current_part += 1
+
     def write(self, b):
         """Write the given bytes-like object, b, and return the number of bytes
         written (always equal to the length of b in bytes, since if the write
@@ -240,53 +325,25 @@ class s3FileObject(io.BufferedIOBase):
         and increment the seek_pos.
         This data will be uploaded to an object when .flush is called.
         """
-        if 'w' not in self._mode:
+        if "w" not in self._mode:
             raise APIException(
                 "Trying to write to a read only file, where mode != 'w'."
             )
         try:
             # add to local, temporary bytearray
             size = len(b)
-            self._buffer[self._seek_pos:self._seek_pos+size] = b
+            self._buffer[-1].write(b)
             self._seek_pos += size
-            self._buffer_pos += size
             # test to see whether we should do a multipart upload now
-            if self._buffer_pos > self._buffer_size:
-                # check to see if bucket needs to be created
-                if self._create_bucket:
-                    # check whether the bucket exists
-                    bucket_list = self._get_bucket_list()
-                    if not self._bucket in bucket_list:
-                        self._conn_obj.conn.create_bucket(Bucket=self._bucket)
-                # if the current part is 0 we have to create the multipart upload
-                if self._current_part == 1:
-                    response= self._conn_obj.conn.create_multipart_upload(
-                        Bucket = self._bucket,
-                        Key = self._path
-                    )
-                    self._upload_id = response['UploadId']
-                    # we need to keep a track of the multipart info
-                    self._multipart_info = {'Parts' : []}
+            # this occurs when the number of buffers is > the maximum number of
+            # parts.  self._current_part is indexed from 1
+            if self._seek_pos > self._part_size:
+                if len(self._buffer) == self._max_parts:
+                    self._multipart_upload_from_buffer()
+                else:
+                    # add another buffer to write to
+                    self._buffer.append(io.BytesIO())
 
-                # upload here
-                part = self._conn_obj.conn.upload_part(
-                    Bucket=self._bucket,
-                    Key=self._path,
-                    UploadId=self._upload_id,
-                    PartNumber=self._current_part,
-                    Body=self._buffer
-                )
-                # insert into the multipart info list of dictionaries
-                self._multipart_info['Parts'].append(
-                    {
-                        'PartNumber' : self._current_part,
-                        'ETag' : part['ETag']
-                    }
-                )
-                # reset bytearray and position in it
-                self._buffer_pos = 0
-                self._buffer = bytearray()
-                self._current_part += 1
         except ClientError as e:
             raise IOException(
                 "Could not write to object {} {}".format(self._path, e)
@@ -323,7 +380,15 @@ class s3FileObject(io.BufferedIOBase):
         SEEK_CUR or 1 – current stream position; offset may be negative
         SEEK_END or 2 – end of the stream; offset is usually negative
         Return the new absolute position.
+
+        Note: currently cannot seek when writing a file.
+
         """
+        if self._mode == 'w':
+            raise IOException(
+                "Cannot seek within a file that is being written to."
+            )
+
         size = self._getsize()
         error_string = "Seek {} is outside file size bounds 0->{} for file {}"
         seek_pos = self._seek_pos
@@ -372,41 +437,27 @@ class s3FileObject(io.BufferedIOBase):
         of the final multipart upload of self._buffer to the S3 store."""
         try:
             if 'w' in self._mode:
-                # we have to check whether we are in a multipart upload or not
-                if self._current_part == 1:
+                # if the size is less than the MAXIMUM UPLOAD SIZE
+                # then just write the data
+                size = self._buffer[0].tell()
+                if self._current_part == 1 and size < s3FileObject.MAXIMUM_PART_SIZE:
                     if self._create_bucket:
-                        # check whether the bucket exists
+                        # check whether the bucket exists and create if not
                         bucket_list = self._get_bucket_list()
                         if not self._bucket in bucket_list:
-                            self._conn_obj.conn.create_bucket(Bucket=self._bucket)
-
-                    # just a regular upload
+                            self._conn_obj.conn.create_bucket(
+                                Bucket=self._bucket
+                            )
+                    # upload the whole buffer - seek back to the start first
+                    self._buffer[0].seek(0)
                     self._conn_obj.conn.put_object(
                         Bucket=self._bucket,
                         Key=self._path,
-                        Body=self._buffer
+                        Body=self._buffer[0].read()
                     )
                 else:
-                    # multipart upload
-                    # upload the last part of the multipart upload here
-                    part = self._conn_obj.conn.upload_part(
-                        Bucket=self._bucket,
-                        Key=self._path,
-                        UploadId=self._upload_id,
-                        PartNumber=self._current_part,
-                        Body=self._buffer
-                    )
-                    # insert into the multipart info list of dictionaries
-                    self._multipart_info['Parts'].append(
-                        {
-                            'PartNumber' : self._current_part,
-                            'ETag' : part['ETag']
-                        }
-                    )
-                    # reset bytearray and position in it - just incase the stream is
-                    # used again - it will overwrite this time, though!
-                    self._seek_pos = 0
-                    self._buffer = bytearray()
+                    # upload as multipart
+                    self._multipart_upload_from_buffer()
                     # finalise the multipart upload
                     self._conn_obj.conn.complete_multipart_upload(
                         Bucket=self._bucket,
@@ -436,21 +487,13 @@ class s3FileObject(io.BufferedIOBase):
         if size == -1:
             size = self._getsize()
 
-        # read the file into the buffer until a new line is found
-        keep_reading = True
-        while keep_reading:
-            if self._buffer_pos > self._getsize() - size:
-                return ""
-            buffer_ascii = self._buffer.decode()
-            if "\n" in buffer_ascii:
-                line = buffer_ascii.split("\n")[0]
-                self._buffer = self._buffer[len(line)+1:]
-                self._buffer_pos += len(line)
-                keep_reading = False
-            else:
-                # add to the buffer
-                buffer = self.read(size=size)
-                self._buffer += buffer
+        # use the BytesIO readline methods
+        if self.tell() == 0:
+            buffer = self.read(size=size)
+            self._buffer[-1].write(buffer)
+            self._buffer[-1].seek(0)
+
+        line = self._buffer[-1].readline().decode().strip()
         return line
 
     def readlines(self, hint=-1):

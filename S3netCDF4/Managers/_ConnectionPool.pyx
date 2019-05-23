@@ -35,7 +35,7 @@ class ConnectionPool(object):
     def add(self, conn, conn_uri):
         """Add a connection to the ConnectionPool.
         Args:
-            conn    : the connection, e.g. a boto3 client
+            conn    : the connection, e.g. a botocore client
             conn_uri: the uri of the connection, e.g. URL address
         Returns:
             None
