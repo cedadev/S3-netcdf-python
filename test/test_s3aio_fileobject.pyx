@@ -192,7 +192,7 @@ class s3aiot1FileObjectWriteTest(unittest.TestCase, s3aioFileObjectGeneralTest):
         self.cfg = json.load(fh)
         fh.close()
 
-    async def test_writable(self):
+    async def test_1writable(self):
         async with s3aioFileObject(
             self.cfg["url"] + "/buckettest/thefox2a.nc",
             credentials=self.cfg["credentials"],
@@ -203,7 +203,7 @@ class s3aiot1FileObjectWriteTest(unittest.TestCase, s3aioFileObjectGeneralTest):
             else:
                 self.fail("s3aioFileObject.writable returned False")
 
-    async def test_write(self):
+    async def test_1write(self):
         async with s3aioFileObject(
             self.cfg["url"] + "/buckettest/thefox2a.nc",
             credentials=self.cfg["credentials"],

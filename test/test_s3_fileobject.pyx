@@ -156,7 +156,7 @@ class s3t2FileObjectReadTest(unittest.TestCase, s3FileObjectGeneralTest):
         cfg = json.load(fh)
         fh.close()
         self.s3c = s3FileObject(
-            cfg["url"] + "/buckettest/thefox2a.nc",
+            cfg["url"] + "/buckettest/thefox1a.nc",
             credentials=cfg["credentials"],
             mode="r"
         )

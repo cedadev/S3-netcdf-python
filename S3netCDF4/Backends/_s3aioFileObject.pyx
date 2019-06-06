@@ -18,8 +18,10 @@ class s3aioFileObject(object):
     """Maximum upload size for the object.  We can split large objects into
     multipart upload.  No parallelism, beyond what the botocore library
     implements, at the moment."""
-    MAXIMUM_UPLOAD_SIZE = 50 * 1024 * 1024   # set at 50MB, minimum multipart
-                                             # upload is 5MB
+    MAXIMUM_PART_SIZE = 50 * 1024 * 1024 # set at 50MB, minimum multipart
+                                         # upload is 5MB
+    MAXIMUM_PARTS_BEFORE_UPLOAD = 4      # the number of parts written to before
+                                         # they are uploaded
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -53,7 +55,8 @@ class s3aioFileObject(object):
         return server, bucket, path
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
-                 part_size=MAXIMUM_UPLOAD_SIZE):
+                 part_size=MAXIMUM_PART_SIZE,
+                 max_parts=MAXIMUM_PARTS_BEFORE_UPLOAD):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
@@ -62,7 +65,8 @@ class s3aioFileObject(object):
         self._mode = mode
         self._seek_pos = 0
         self._part_size = part_size
-        self._buffer = bytearray()
+        self._max_parts = max_parts
+        self._buffer = [io.BytesIO()]   # have a list of objects that can stream
         self._credentials = credentials
         self._create_bucket = create_bucket
 
@@ -256,15 +260,47 @@ class s3aioFileObject(object):
 
         # upload from a buffer - do we need to split into more than one
         # multiparts?
-        current_pos = 0
-        while (current_pos + s3aioFileObject.MAXIMUM_UPLOAD_SIZE < len(self._buffer)):
+        new_buffer = []
+        for buffer_part in range(0, len(self._buffer)):
+            # is the current part of the buffer larger than the maximum
+            # upload size? split if it is
+            data_buf = self._buffer[buffer_part]
+            data_len = data_buf.tell()
+            if data_len >= s3aioFileObject.MAXIMUM_PART_SIZE:
+                data_buf.seek(0)
+                data_pos = 0
+                # split the file up
+                while data_pos < data_len:
+                    new_buffer.append(io.BytesIO())
+                    # copy the data - don't overstep the buffer
+                    if data_pos + s3aioFileObject.MAXIMUM_PART_SIZE >= data_len:
+                        sub_data = data_buf.read(data_len-data_pos)
+                    else:
+                        sub_data = data_buf.read(
+                            s3aioFileObject.MAXIMUM_PART_SIZE
+                        )
+                    new_buffer[-1].write(sub_data)
+                    # increment to next
+                    data_pos += s3aioFileObject.MAXIMUM_PART_SIZE
+
+                # free the old memory
+                self._buffer[buffer_part].close()
+            else:
+                new_buffer.append(self._buffer[buffer_part])
+
+        self._buffer = new_buffer
+
+        for buffer_part in range(0, len(self._buffer)):
+            # seek in the BytesIO buffer to get to the beginning after the
+            # writing
+            self._buffer[buffer_part].seek(0)
             # upload here
             part = await self._conn_obj.conn.upload_part(
                 Bucket=self._bucket,
                 Key=self._path,
                 UploadId=self._upload_id,
                 PartNumber=self._current_part,
-                Body=self._buffer[current_pos:current_pos + s3aioFileObject.MAXIMUM_UPLOAD_SIZE]
+                Body=self._buffer[buffer_part]
             )
             # insert into the multipart info list of dictionaries
             self._multipart_info['Parts'].append(
@@ -273,28 +309,13 @@ class s3aioFileObject(object):
                     'ETag' : part['ETag']
                 }
             )
-            current_pos += s3aioFileObject.MAXIMUM_UPLOAD_SIZE
             self._current_part += 1
 
-        # do the final upload
-        part = await self._conn_obj.conn.upload_part(
-            Bucket=self._bucket,
-            Key=self._path,
-            UploadId=self._upload_id,
-            PartNumber=self._current_part,
-            Body=self._buffer[current_pos:]
-        )
-        # insert into the multipart info list of dictionaries
-        self._multipart_info['Parts'].append(
-            {
-                'PartNumber' : self._current_part,
-                'ETag' : part['ETag']
-            }
-        )
-
-        # reset bytearray and position in it
+        # reset all the byte buffers and their positions
+        for buffer_part in range(0, len(self._buffer)):
+            self._buffer[buffer_part].close()
+        self._buffer = [io.BytesIO()]
         self._seek_pos = 0
-        self._buffer = bytearray()
         self._current_part += 1
 
     async def write(self, b):
@@ -312,11 +333,17 @@ class s3aioFileObject(object):
         try:
             # add to local, temporary bytearray
             size = len(b)
-            self._buffer[self._seek_pos:self._seek_pos+size] = b
+            self._buffer[-1].write(b)
             self._seek_pos += size
             # test to see whether we should do a multipart upload now
+            # this occurs when the number of buffers is > the maximum number of
+            # parts.  self._current_part is indexed from 1
             if self._seek_pos > self._part_size:
-                await self._multipart_upload_from_buffer()
+                if len(self._buffer) == self._max_parts:
+                    await self._multipart_upload_from_buffer()
+                else:
+                    # add another buffer to write to
+                    self._buffer.append(io.BytesIO())
 
         except ClientError as e:
             raise IOException(
@@ -354,7 +381,16 @@ class s3aioFileObject(object):
         SEEK_CUR or 1 – current stream position; offset may be negative
         SEEK_END or 2 – end of the stream; offset is usually negative
         Return the new absolute position.
+
+        Note: currently cannot seek when writing a file.
+
         """
+
+        if self._mode == 'w':
+            raise IOException(
+                "Cannot seek within a file that is being written to."
+            )
+
         size = await self._getsize()
         error_string = "Seek {} is outside file size bounds 0->{} for file {}"
         seek_pos = self._seek_pos
@@ -405,7 +441,8 @@ class s3aioFileObject(object):
             if 'w' in self._mode:
                 # if the size is less than the MAXIMUM UPLOAD SIZE
                 # then just write the data
-                if len(self._buffer) < s3aioFileObject.MAXIMUM_UPLOAD_SIZE:
+                size = self._buffer[0].tell()
+                if self._current_part == 1 and size < s3aioFileObject.MAXIMUM_PART_SIZE:
                     if self._create_bucket:
                         # check whether the bucket exists and create if not
                         bucket_list = await self._get_bucket_list()
@@ -413,16 +450,16 @@ class s3aioFileObject(object):
                             await self._conn_obj.conn.create_bucket(
                                 Bucket=self._bucket
                             )
-                    # upload the whole buffer
+                    # upload the whole buffer - seek back to the start first
+                    self._buffer[0].seek(0)
                     await self._conn_obj.conn.put_object(
                         Bucket=self._bucket,
                         Key=self._path,
-                        Body=self._buffer
+                        Body=self._buffer[0].read()
                     )
                 else:
                     # upload as multipart
                     await self._multipart_upload_from_buffer()
-                if self._current_part != 1:
                     # finalise the multipart upload
                     await self._conn_obj.conn.complete_multipart_upload(
                         Bucket=self._bucket,
@@ -448,25 +485,17 @@ class s3aioFileObject(object):
                     self._uri)
                 )
         # only read a set number of bytes if size is passed in, otherwise
-        # read upto the buffer size
+        # read upto the file size
         if size == -1:
             size = self._getsize()
 
-        # read the file into the buffer until a new line is found
-        keep_reading = True
-        while keep_reading:
-            if self._seek_pos > self._getsize() - size:
-                return ""
-            buffer_ascii = self._buffer.decode()
-            if "\n" in buffer_ascii:
-                line = buffer_ascii.split("\n")[0]
-                self._buffer = self._buffer[len(line)+1:]
-                self._seek_pos += len(line)
-                keep_reading = False
-            else:
-                # add to the buffer
-                buffer = await self.read(size=size)
-                self._buffer += buffer
+        # use the BytesIO readline methods
+        if self.tell() == 0:
+            buffer = await self.read(size=size)
+            self._buffer[-1].write(buffer)
+            self._buffer[-1].seek(0)
+
+        line = self._buffer[-1].readline().decode().strip()
         return line
 
     async def readlines(self, hint=-1):

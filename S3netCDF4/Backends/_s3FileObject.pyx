@@ -258,7 +258,6 @@ class s3FileObject(io.BufferedIOBase):
 
         # upload from a buffer - do we need to split into more than one
         # multiparts?  Remember: self._buffer is a list of BytesIO objects
-
         new_buffer = []
         for buffer_part in range(0, len(self._buffer)):
             # is the current part of the buffer larger than the maximum
@@ -286,11 +285,10 @@ class s3FileObject(io.BufferedIOBase):
                 new_buffer.append(self._buffer[buffer_part])
 
         self._buffer = new_buffer
-        buffer_part = 0
 
-        while (buffer_part < len(self._buffer)):
+        for buffer_part in range(0, len(self._buffer)):
             # seek in the BytesIO buffer to get to the beginning after the
-            # writing
+            # writing§
             self._buffer[buffer_part].seek(0)
             # upload here
             part = self._conn_obj.conn.upload_part(
@@ -308,7 +306,6 @@ class s3FileObject(io.BufferedIOBase):
                 }
             )
             self._current_part += 1
-            buffer_part += 1
 
         # reset all the byte buffers and their positions
         for buffer_part in range(0, len(self._buffer)):
