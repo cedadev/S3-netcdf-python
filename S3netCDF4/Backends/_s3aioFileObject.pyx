@@ -22,6 +22,7 @@ class s3aioFileObject(object):
                                          # upload is 5MB
     MAXIMUM_PARTS_BEFORE_UPLOAD = 4      # the number of parts written to before
                                          # they are uploaded
+    DEBUG = False
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -290,33 +291,56 @@ class s3aioFileObject(object):
 
         self._buffer = new_buffer
 
+        # new event loop
+        tasks = []
+
         for buffer_part in range(0, len(self._buffer)):
             # seek in the BytesIO buffer to get to the beginning after the
             # writing
             self._buffer[buffer_part].seek(0)
             # upload here
-            part = await self._conn_obj.conn.upload_part(
+            if s3aioFileObject.DEBUG:
+                print("Uploading part {}: {} / {}".format(
+                    self._current_part+buffer_part,
+                    buffer_part+1,
+                    len(self._buffer))
+                )
+            # schedule the uploads
+            task = asyncio.create_task(self._conn_obj.conn.upload_part(
                 Bucket=self._bucket,
                 Key=self._path,
                 UploadId=self._upload_id,
-                PartNumber=self._current_part,
+                PartNumber=self._current_part + buffer_part,
                 Body=self._buffer[buffer_part]
-            )
+            ))
+            tasks.append(task)
+
+        # await the completion of the uploads§
+        res = await asyncio.gather(*tasks)
+        for buffer_part in range(0, len(self._buffer)):
+            if s3aioFileObject.DEBUG:
+                print("Finished uploading part {}: {} / {}".format(
+                    self._current_part+buffer_part,
+                    buffer_part+1,
+                    len(self._buffer))
+                )
             # insert into the multipart info list of dictionaries
+            part = res[buffer_part]
             self._multipart_info['Parts'].append(
                 {
-                    'PartNumber' : self._current_part,
+                    'PartNumber' : self._current_part + buffer_part,
                     'ETag' : part['ETag']
                 }
             )
-            self._current_part += 1
+
+        # add the total number of uploads to the current part
+        self._current_part += len(self._buffer)
 
         # reset all the byte buffers and their positions
         for buffer_part in range(0, len(self._buffer)):
             self._buffer[buffer_part].close()
         self._buffer = [io.BytesIO()]
         self._seek_pos = 0
-        self._current_part += 1
 
     async def write(self, b):
         """Write the given bytes-like object, b, and return the number of bytes
@@ -335,11 +359,15 @@ class s3aioFileObject(object):
             size = len(b)
             self._buffer[-1].write(b)
             self._seek_pos += size
+            if s3aioFileObject.DEBUG:
+                print("Seek pos vs size {} {}".format(self._seek_pos, size))
             # test to see whether we should do a multipart upload now
             # this occurs when the number of buffers is > the maximum number of
             # parts.  self._current_part is indexed from 1
             if self._seek_pos > self._part_size:
                 if len(self._buffer) == self._max_parts:
+                    if s3aioFileObject.DEBUG:
+                        print("Upload from write")
                     await self._multipart_upload_from_buffer()
                 else:
                     # add another buffer to write to
@@ -459,6 +487,8 @@ class s3aioFileObject(object):
                     )
                 else:
                     # upload as multipart
+                    if s3aioFileObject.DEBUG:
+                        print("Upload from flush")
                     await self._multipart_upload_from_buffer()
                     # finalise the multipart upload
                     await self._conn_obj.conn.complete_multipart_upload(
