@@ -158,6 +158,7 @@ class s3FileObject(io.BufferedIOBase):
             for obj in response.get('Contents', []):
                 if obj['Key'] == self._path:
                     exists = True
+                    break
             if not exists:
                 raise IOException(
                     "Object does not exist: {}/{}/{}".format(

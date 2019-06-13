@@ -20,9 +20,11 @@ class s3aioFileObject(object):
     implements, at the moment."""
     MAXIMUM_PART_SIZE = 50 * 1024 * 1024 # set at 50MB, minimum multipart
                                          # upload is 5MB
-    MAXIMUM_PARTS_BEFORE_UPLOAD = 4      # the number of parts written to before
-                                         # they are uploaded
-    DEBUG = False
+    MAXIMUM_PARTS = 8                    # maximum number of parts before upload
+                                         # is triggered
+    # enable / disable multipart upload and download
+    ENABLE_MULTIPART_DOWNLOAD = True
+    ENABLE_MULTIPART_UPLOAD = True
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -57,7 +59,9 @@ class s3aioFileObject(object):
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
                  part_size=MAXIMUM_PART_SIZE,
-                 max_parts=MAXIMUM_PARTS_BEFORE_UPLOAD):
+                 max_parts=MAXIMUM_PARTS,
+                 multipart_upload=ENABLE_MULTIPART_UPLOAD,
+                 multipart_download=ENABLE_MULTIPART_DOWNLOAD):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
@@ -70,6 +74,8 @@ class s3aioFileObject(object):
         self._buffer = [io.BytesIO()]   # have a list of objects that can stream
         self._credentials = credentials
         self._create_bucket = create_bucket
+        self._multipart_upload = multipart_upload
+        self._multipart_download = multipart_download
 
     async def __aenter__(self):
         """Async version of the enter context method."""
@@ -180,6 +186,18 @@ class s3aioFileObject(object):
         Not supported in S3."""
         raise io.UnsupportedOperation
 
+    async def _read_partial_file(self, part_num, part_size, data_buf):
+        s = int(part_num*part_size)
+        e = int((part_num+1)*part_size)
+        range_fmt = 'bytes={}-{}'.format(s,e)
+        s3_object = await self._conn_obj.conn.get_object(
+            Bucket = self._bucket,
+            Key = self._path,
+            Range = range_fmt
+        )
+        body = s3_object['Body']
+        data_buf[s:e] = await body.read()
+
     async def read(self, size=-1):
         """Read and return up to size bytes. For the S3 implementation the size
         can be used for RangeGet.  If size==-1 then the whole object is streamed
@@ -187,35 +205,78 @@ class s3aioFileObject(object):
         # read the object using the bucket and path already determined in
         # __init__, and using the connection object
         try:
+            # get the file size first
+            file_size = await self._getsize()
             if size== -1:
-                s3_object = await self._conn_obj.conn.get_object(
-                    Bucket = self._bucket,
-                    Key = self._path
-                )
-                body = s3_object['Body']
+                range_start = 0
+                range_end   = file_size-1
+                range_size  = file_size
             else:
-                # do the partial / range get version, and increment the seek
-                # pointer
-                range_end = self._seek_pos+size-1
-                file_size = await self._getsize()
+                range_start = self._seek_pos
+                range_end   = self._seek_pos+size-1
                 if range_end >= file_size:
                     range_end = file_size-1
+                range_size  = range_end-range_start+1
+
+            # if multipart download is not supported
+            if not self._multipart_download:
+                # get the full file
                 s3_object = await self._conn_obj.conn.get_object(
                     Bucket = self._bucket,
                     Key = self._path,
-                    Range = 'bytes={}-{}'.format(
-                        self._seek_pos, range_end
-                    )
                 )
-                self._seek_pos += size
                 body = s3_object['Body']
+                data = await body.read()
+            # if the file is smaller than the MAXIMUM_PART_SIZE
+            elif (range_size < self._part_size):
+                # the requested range is the full file, it is fastest to
+                # not specify the range
+                if (range_start == 0 and range_size == file_size):
+                    # get the full file
+                    s3_object = await self._conn_obj.conn.get_object(
+                        Bucket = self._bucket,
+                        Key = self._path,
+                    )
+                # a portion of the file is requested
+                else:
+                    s3_object = await self._conn_obj.conn.get_object(
+                        Bucket = self._bucket,
+                        Key = self._path,
+                        Range = 'bytes={}-{}'.format(
+                            range_start, range_end
+                        )
+                    )
+                body = s3_object['Body']
+                data = await body.read()
+            # multipart download version
+            else:
+                """Use range get to split up a file into the MAXIMUM_PART_SIZE and
+                download each part asynchronously."""
+                # calculate the number of necessary parts
+                n_parts = int(range_size / self._part_size + 1)
+                # don't go above the maximum number downloadable
+                if n_parts > self._max_parts:
+                    n_parts = self._max_parts
+                # (re)calculate the download size
+                part_size = int(range_size / n_parts)
+                # create the tasks
+                tasks = []
+                data = bytearray(range_size)
+
+                for p in range(0, n_parts):
+                    task = asyncio.create_task(self._read_partial_file(
+                        p, part_size, data
+                    ))
+                    tasks.append(task)
+                await asyncio.gather(*tasks)
+
         except ClientError as e:
             raise IOException(
                 "Could not read from object {} {}".format(self._path, e)
             )
         except AttributeError as e:
             self._handle_connection_exception(e)
-        return await body.read()
+        return data
 
     async def read1(self, size=-1):
         """Just call read."""
@@ -240,7 +301,8 @@ class s3aioFileObject(object):
         There are three cases:
             1.  The size is exactly the same size as the MAXIMUM_UPLOAD_SIZE
             2.  The size is greater than the MAXIMUM_UPLOAD_SIZE
-            3.
+            3.  The size is multiple times greater than the MAX_UPLOAD_SIZE and
+                requires spolitting into smaller chunks
         """
         # check to see if bucket needs to be created
         if self._create_bucket:
@@ -267,22 +329,22 @@ class s3aioFileObject(object):
             # upload size? split if it is
             data_buf = self._buffer[buffer_part]
             data_len = data_buf.tell()
-            if data_len >= s3aioFileObject.MAXIMUM_PART_SIZE:
+            if data_len >= self._part_size:
                 data_buf.seek(0)
                 data_pos = 0
                 # split the file up
                 while data_pos < data_len:
                     new_buffer.append(io.BytesIO())
                     # copy the data - don't overstep the buffer
-                    if data_pos + s3aioFileObject.MAXIMUM_PART_SIZE >= data_len:
+                    if data_pos + self._part_size >= data_len:
                         sub_data = data_buf.read(data_len-data_pos)
                     else:
                         sub_data = data_buf.read(
-                            s3aioFileObject.MAXIMUM_PART_SIZE
+                            self._part_size
                         )
                     new_buffer[-1].write(sub_data)
                     # increment to next
-                    data_pos += s3aioFileObject.MAXIMUM_PART_SIZE
+                    data_pos += self._part_size
 
                 # free the old memory
                 self._buffer[buffer_part].close()
@@ -291,7 +353,6 @@ class s3aioFileObject(object):
 
         self._buffer = new_buffer
 
-        # new event loop
         tasks = []
 
         for buffer_part in range(0, len(self._buffer)):
@@ -299,12 +360,6 @@ class s3aioFileObject(object):
             # writing
             self._buffer[buffer_part].seek(0)
             # upload here
-            if s3aioFileObject.DEBUG:
-                print("Uploading part {}: {} / {}".format(
-                    self._current_part+buffer_part,
-                    buffer_part+1,
-                    len(self._buffer))
-                )
             # schedule the uploads
             task = asyncio.create_task(self._conn_obj.conn.upload_part(
                 Bucket=self._bucket,
@@ -318,12 +373,6 @@ class s3aioFileObject(object):
         # await the completion of the uploads§
         res = await asyncio.gather(*tasks)
         for buffer_part in range(0, len(self._buffer)):
-            if s3aioFileObject.DEBUG:
-                print("Finished uploading part {}: {} / {}".format(
-                    self._current_part+buffer_part,
-                    buffer_part+1,
-                    len(self._buffer))
-                )
             # insert into the multipart info list of dictionaries
             part = res[buffer_part]
             self._multipart_info['Parts'].append(
@@ -359,15 +408,12 @@ class s3aioFileObject(object):
             size = len(b)
             self._buffer[-1].write(b)
             self._seek_pos += size
-            if s3aioFileObject.DEBUG:
-                print("Seek pos vs size {} {}".format(self._seek_pos, size))
             # test to see whether we should do a multipart upload now
             # this occurs when the number of buffers is > the maximum number of
             # parts.  self._current_part is indexed from 1
-            if self._seek_pos > self._part_size:
+            if (self._multipart_upload and
+                self._seek_pos > self._part_size):
                 if len(self._buffer) == self._max_parts:
-                    if s3aioFileObject.DEBUG:
-                        print("Upload from write")
                     await self._multipart_upload_from_buffer()
                 else:
                     # add another buffer to write to
@@ -470,7 +516,10 @@ class s3aioFileObject(object):
                 # if the size is less than the MAXIMUM UPLOAD SIZE
                 # then just write the data
                 size = self._buffer[0].tell()
-                if self._current_part == 1 and size < s3aioFileObject.MAXIMUM_PART_SIZE:
+                if ((self._current_part == 1 and
+                    size < self._part_size) or
+                    not self._multipart_upload
+                   ):
                     if self._create_bucket:
                         # check whether the bucket exists and create if not
                         bucket_list = await self._get_bucket_list()
@@ -487,8 +536,6 @@ class s3aioFileObject(object):
                     )
                 else:
                     # upload as multipart
-                    if s3aioFileObject.DEBUG:
-                        print("Upload from flush")
                     await self._multipart_upload_from_buffer()
                     # finalise the multipart upload
                     await self._conn_obj.conn.complete_multipart_upload(
