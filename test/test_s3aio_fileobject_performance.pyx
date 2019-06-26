@@ -7,19 +7,22 @@ import asyncio
 def create_write_file_object():
     # load the credentials from the hidden file
     fh = open(".s3config.json")
-    cfg = json.load(fh)
+    # switch here for STFC | ECMWF for endpoint / credentials
+    cfg = json.load(fh)["STFC"]
     fh.close()
     s3c = s3aioFileObject(
         cfg["url"] + "/buckettest/speed_test_aio_file_object.bin",
         credentials=cfg["credentials"],
-        mode="w"
+        mode="w",
+        multipart_upload = True
     )
     return s3c
 
 def create_read_file_object():
     # load the credentials from the hidden file
     fh = open(".s3config.json")
-    cfg = json.load(fh)
+    # switch here for STFC | ECMWF for endpoint / credentials
+    cfg = json.load(fh)["STFC"]
     fh.close()
     s3c = s3aioFileObject(
         cfg["url"] + "/buckettest/speed_test_aio_file_object.bin",
@@ -56,12 +59,11 @@ if __name__ == "__main__":
 
     s3c = create_write_file_object()
 
-    # bytes, fsize = loop.run_until_complete(create_test_data(s3c))
-    # print(fsize)
-    # start_time = time.time()
-    # loop.run_until_complete(write_test_data(s3c, bytes))
-    # end_time = time.time()
-    # print(end_time - start_time)
+    bytes, fsize = loop.run_until_complete(create_test_data(s3c))
+    start_time = time.time()
+    loop.run_until_complete(write_test_data(s3c, bytes))
+    end_time = time.time()
+    print(end_time - start_time)
 
     fsize = 52428800
     s3cr = create_read_file_object()
@@ -69,4 +71,3 @@ if __name__ == "__main__":
     bytes = loop.run_until_complete(read_test_data(s3cr))
     end_time = time.time()
     print(end_time - start_time)
-    print(bytes[237], bytes[238], bytes[fsize-1])

@@ -31,8 +31,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_detach(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="w"
         ) as s3c:
             try:
@@ -45,8 +45,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_close(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="rw"
         ) as s3c:
             if await s3c.close():
@@ -56,8 +56,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_readable(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="rw"
         ) as s3c:
             if s3c.readable():
@@ -67,8 +67,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_truncate(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="w"
         ) as s3c:
             try:
@@ -81,8 +81,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_fileno(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="w"
         ) as s3c:
             try:
@@ -95,8 +95,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_seekable(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="rw"
         ) as s3c:
             if s3c.seekable():
@@ -106,8 +106,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_tell(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="rw"
         ) as s3c:
             if s3c.tell() == 0:
@@ -117,8 +117,8 @@ class s3aioFileObjectGeneralTest(object, metaclass=AsyncIOTestFactory):
 
     async def test_seek(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="rw"
         ) as s3c:
             # Three different methods for seek:
@@ -194,8 +194,8 @@ class s3aiot1FileObjectWriteTest(unittest.TestCase, s3aioFileObjectGeneralTest):
 
     async def test_1writable(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="w"
         ) as s3c:
             if s3c.writable():
@@ -205,8 +205,8 @@ class s3aiot1FileObjectWriteTest(unittest.TestCase, s3aioFileObjectGeneralTest):
 
     async def test_1write(self):
         async with s3aioFileObject(
-            self.cfg["url"] + "/buckettest/thefox2a.nc",
-            credentials=self.cfg["credentials"],
+            self.cfg["STFC"]["url"] + "/buckettest/thefox2a.nc",
+            credentials=self.cfg["STFC"]["credentials"],
             mode="w"
         ) as s3c:
             # create random bytes - if we keep it below s3c._getsize() then it will
