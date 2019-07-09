@@ -24,7 +24,7 @@ cdef class CFADataset:
        | cfa_groups         dict<CFAGroups>             |
        | metadata           dict<mixed>                 |
        +------------------------------------------------+
-       | bool               createGroup(string grp_name)|
+       | CFAGroup           createGroup(string grp_name)|
        | CFAGroup           getGroup(string grp_name)   |
        | bool               renameGroup(string old_name,|
        |                                string new_name)|
@@ -109,7 +109,7 @@ cdef class CFADataset:
             ).format(grp_name))
         # create the group and add it to the dictionary of groups
         self.cfa_groups[grp_name] = CFAGroup(grp_name, dataset=self)
-
+        # return the group
         return self.cfa_groups[grp_name]
 
     cpdef CFAGroup getGroup(CFADataset self, basestring grp_name):
@@ -146,12 +146,12 @@ cdef class CFADataset:
 
         try:
             # reasssign the key, then rename in CFAGroup datastructure
-            self.cfa_groups[new_name] = self.cfa_groups[old_name].pop()
+            self.cfa_groups[new_name] = self.cfa_groups.pop(old_name)
             self.cfa_groups[new_name].grp_name = new_name
         except KeyError as e:
-            raise CFAGroupError(
+            raise CFAGroupError((
                 "Could not renameGroup {}, group does not exist."
-            ).format(old_name)
+            ).format(old_name))
         return True
 
     cpdef basestring getName(CFADataset self):
@@ -211,7 +211,7 @@ cdef class CFAGroup:
         | CFADim      createDimension(string dim_name,   |
         |                           int dim_len,         |
         |                           dict<mixed>metadata, |
-        |                           <type> type        ) |
+        |                           <type> type)         |
         | CFADim       getDimension(string dim_name)     |
         | iterator<CFADim> getDimensions()               |
         | bool        renameDimension(string old_name,   |
@@ -303,9 +303,9 @@ cdef class CFAGroup:
 
         # Check that the variable hasn't already been added
         if var_name in self.cfa_vars:
-            raise CFAVariableError(
+            raise CFAVariableError((
                 "Could not createVariable {}, variable already exists"
-            ).format(var_name)
+            ).format(var_name))
 
         # There are three cases for creating the CFA subarray:
         # 1. No dimensions are given - the array is just created and returned.
@@ -463,12 +463,12 @@ cdef class CFAGroup:
 
         try:
             # reasssign the key, then rename in CFAGroup datastructure
-            self.cfa_vars[new_name] = self.cfa_vars[old_name].pop()
+            self.cfa_vars[new_name] = self.cfa_vars.pop(old_name)
             self.cfa_vars[new_name].var_name = new_name
         except KeyError as e:
-            raise CFAVariableError(
+            raise CFAVariableError((
                 "Could not renameVariable {}, variable does not exist."
-            ).format(old_name)
+            ).format(old_name))
         return True
 
     cpdef CFADimension createDimension(CFAGroup self,
@@ -499,9 +499,9 @@ cdef class CFAGroup:
         try:
             return self.cfa_dims[dim_name]
         except KeyError as e:
-            raise CFADimensionError(
+            raise CFADimensionError((
                 "Could not getDimension {}, dimension does not exist."
-            ).format(dim_name)
+            ).format(dim_name))
 
     cpdef list getDimensions(CFAGroup self):
         """Get the name of all the dimensions for this Group."""
@@ -523,12 +523,12 @@ cdef class CFAGroup:
 
         try:
             # reasssign the key, then rename in CFAGroup datastructure
-            self.cfa_dims[new_name] = self.cfa_dims[old_name].pop()
+            self.cfa_dims[new_name] = self.cfa_dims.pop(old_name)
             self.cfa_dims[new_name].dim_name = new_name
         except KeyError as e:
-            raise CFADimensionError(
+            raise CFADimensionError((
                 "Could not renameDimension {}, dimension does not exist."
-            ).format(old_name)
+            ).format(old_name))
         return True
 
     cpdef dict getMetadata(CFAGroup self):
@@ -573,9 +573,9 @@ cdef class CFAVariable:
         +------------------------------------------------+
     """
 
-    cdef basestring var_name
+    cdef public basestring var_name
     cdef np.dtype nc_dtype
-    cdef dict metadata
+    cdef public dict metadata
     cdef basestring cf_role
     cdef list cfa_dimensions
     cdef list pmdimensions
@@ -948,7 +948,7 @@ cdef class CFADimension:
         +------------------------------------------------+
     """
 
-    cdef basestring dim_name
+    cdef public basestring dim_name
     cdef int dim_len
     cdef dict metadata
     cdef basestring axis_type
@@ -956,7 +956,7 @@ cdef class CFADimension:
     def __init__(CFADimension self,
                  basestring dim_name="",
                  int dim_len=-1,
-                 basestring axis_type="",
+                 basestring axis_type="N",
                  dict metadata=dict()
                 ):
         """Initialise the CFADim object"""

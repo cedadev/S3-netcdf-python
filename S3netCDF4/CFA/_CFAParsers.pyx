@@ -11,6 +11,7 @@
 
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFAClasses import *
+import posixpath
 
 import json
 
@@ -27,15 +28,16 @@ class CFA_netCDFParser(CFA_Parser):
         pass
 
     def read(self, nc_dataset):
-        """Parse an already open netcdf_dataset to build the _CFAClasses hierarchy
+        """Parse an already open netcdf_dataset to build the _CFAClasses
+        hierarchy.
 
         Args:
             netcdf_dataset (Dataset): the open dataset from the netcdf4-python
             library.
 
         Returns:
-            CFADataset: The CFADataset object, populated with CFAGroups, which are
-            in turn populated with CFADims and CFAVariables.
+            CFADataset: The CFADataset object, populated with CFAGroups, which
+            are in turn populated with CFADims and CFAVariables.
         """
 
         # check this is a CFA file
@@ -95,8 +97,8 @@ class CFA_netCDFParser(CFA_Parser):
         return cfa_dataset
 
     def write(self, cfa_dataset, nc_dataset):
-        """Write the _CFAClasses hierarchy to an already open netcdf_dataset (opened
-        with 'w' write flag).
+        """Write the _CFAClasses hierarchy to an already open netcdf_dataset
+        (opened with 'w' write flag).
 
         Args:
             cfa_dataset (CFADataset): the top class in the _CFAClasses hierarchy
