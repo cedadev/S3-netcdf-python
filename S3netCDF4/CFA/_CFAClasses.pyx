@@ -81,9 +81,12 @@ cdef class CFADataset:
         """Overload the getitem to return a group"""
         return self.getGroup(grp_name)
 
-    def __getattr__(CFADataset self, basestring grp_name):
+    def __getattr__(CFADataset self, basestring name):
         """Overload the getattribute to return a group"""
-        return self.getGroup(grp_name)
+        if name == "metadata":
+            return self.metadata
+        else:
+            return self.getGroup(name)
 
     def __setattr__(CFADataset self, basestring grp_name, value):
         """Overload the setattribute to return an error"""
@@ -258,12 +261,17 @@ cdef class CFAGroup:
 
     def __getitem__(CFAGroup self, basestring name):
         """Overload getitem to behave as getattr"""
-        return self.__getattr__(name)
+        if name == "metadata":
+            return self.metadata
+        else:
+            return self.__getattr__(name)
 
     def __getattr__(CFAGroup self, basestring name):
         """Return the variable or dimension with the name of varname"""
         if name == "shape":
-            return self.shape()
+            return self.shape
+        elif name == "metadata":
+            return self.metadata
         elif name in self.cfa_vars:
             return self.getVariable(name)
         elif name in self.cfa_dims:
@@ -913,7 +921,7 @@ cdef class CFAVariable:
         cfa_array_dict = {}
         if self.base != "":
             cfa_array_dict["base"] = self.base
-        if self.pmshape != []:
+        if self.pmshape.any():
             cfa_array_dict["pmshape"] = self.pmshape.tolist()
         if self.pmdimensions != []:
             cfa_array_dict["pmdimensions"] = self.pmdimensions

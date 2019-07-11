@@ -1,8 +1,5 @@
 """
-   Collection of functions that parse files with embedded CFA metadata and
-   return a hierarchy of objects instantiated from the _CFAClasses.
-   See the class definitions and documentation in _CFAClasses.pyx for this
-   hierarchy.
+   Parser to read / write CFA metadata from / to a netCDF file.
 
    See:
      http://www.met.reading.ac.uk/~david/cfa/0.4/index.html
@@ -11,14 +8,11 @@
 
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFAClasses import *
+import netCDF4._netCDF4 as netCDF4
 import posixpath
-
 import json
 
-class CFA_Parser(object):
-    """Base class for CFA Parser - pure abstract so raise an exception."""
-    def __init__(self):
-        raise NotImplementedError
+from _CFAParser import CFA_Parser
 
 class CFA_netCDFParser(CFA_Parser):
 
@@ -109,34 +103,24 @@ class CFA_netCDFParser(CFA_Parser):
             None
         """
         # set the global metadata
-        nc_dataset.setncatts(cfa_dataset.getMetadata())
-        # create the groups
+        netCDF4.Dataset.setncatts(nc_dataset, cfa_dataset.getMetadata())
+        # get the groups
         for group in cfa_dataset.getGroups():
-            if (group != "root"):
-                nc_group = nc_dataset.createGroup(group)
-            else:
+            if (group == "root"):
                 nc_group = nc_dataset
+            else:
+                nc_group = nc_dataset.groups[group]
 
             # get the actual group
             cfa_group = cfa_dataset.getGroup(group)
-            # get the dimension names
-            for dim in cfa_group.getDimensions():
-                # get the actual dimension
-                cfa_dim = cfa_group.getDimension(dim)
-                # create the dimension in the netCDF file
-                nc_group.createDimension(
-                    dimname=cfa_dim.getName(),
-                    size=cfa_dim.getLen()
-                )
+            # set the metadata for the group
+            netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
 
             for var in cfa_group.getVariables():
                 # get the actual variable
                 cfa_var = cfa_group.getVariable(var)
-                # create the variable
-                nc_var = nc_group.createVariable(
-                    varname=cfa_var.getName(),
-                    datatype=cfa_var.getType()
-                )
+                # get the variable
+                nc_var = nc_group.variables[cfa_var.getName()]
                 # get the variable metadata
                 var_md = dict(cfa_var.getMetadata())
                 # add the cfa metadata - if it is a cfa array
@@ -144,5 +128,5 @@ class CFA_netCDFParser(CFA_Parser):
                     var_md['cf_role'] = cfa_var.getRole()
                     var_md['cfa_dimensions'] = " ".join(cfa_var.getDimensions())
                     var_md['cfa_array'] = json.dumps(cfa_var.dump())
-                # set the metadata
-                nc_var.setncatts(var_md)
+                # set the metadata for the variable
+                netCDF4.Variable.setncatts(nc_var, var_md)

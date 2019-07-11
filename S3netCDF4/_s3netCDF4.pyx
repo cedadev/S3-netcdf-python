@@ -16,9 +16,9 @@ import numpy as np
 import netCDF4._netCDF4 as netCDF4
 
 from _Exceptions import *
-from CFA._CFAClasses import *
-from CFA._CFAFunctions import *
-from CFA._CFAParsers import *
+from S3netCDF4.CFA._CFAClasses import *
+from S3netCDF4.CFA._CFAFunctions import *
+from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
 from S3netCDF4.Managers._FileManager import FileManager
 
 # these are class attributes that only exist at the python level (not in the
@@ -83,22 +83,24 @@ class s3Variable(netCDF4.Variable):
         """
         # first check if this is a group, and create within the group if it
         # is
+        if type(dimensions) is not tuple:
+            raise APIException("Dimensions has to be of type tuple")
+
         if hasattr(parent, "_cfa_group") and parent._cfa_group:
             # check if this is a dimension variable and, if it is, assign the
             # netCDF dimension.  If it is a field variable then don't assign.
             if name in parent._cfa_group.getDimensions():
                 nc_dimensions = (name,)
-                self._cfa_var = None
             else:
                 nc_dimensions = list([])
-                # only create the cfa variable for field variables
-                self._cfa_var = parent._cfa_group.createVariable(
-                    var_name=name,
-                    nc_dtype=np.dtype(datatype),
-                    dim_names=list(dimensions),
-                    subarray_shape=subarray_shape,
-                    max_subarray_size=max_subarray_size
-                )
+            # only create the cfa variable for field variables
+            self._cfa_var = parent._cfa_group.createVariable(
+                var_name=name,
+                nc_dtype=np.dtype(datatype),
+                dim_names=list(dimensions),
+                subarray_shape=subarray_shape,
+                max_subarray_size=max_subarray_size
+            )
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
         elif hasattr(parent, "_cfa_dataset") and parent._cfa_dataset:
@@ -110,22 +112,23 @@ class s3Variable(netCDF4.Variable):
             else:
                 cfa_root_group = parent._cfa_dataset.createGroup("root")
 
+            # get the dimensions - the name of the variable if it is a dimension
+            # variable, or empty if a field variable
             if name in cfa_root_group.getDimensions():
                 nc_dimensions = (name,)
-                self._cfa_var = None
             else:
                 nc_dimensions = list([])
-                # create the CFA var
-                self._cfa_var = cfa_root_group.createVariable(
-                    var_name=name,
-                    nc_dtype=np.dtype(datatype),
-                    dim_names=list(dimensions),
-                    subarray_shape=subarray_shape,
-                    max_subarray_size=max_subarray_size
-                )
+            # create the CFA var
+            self._cfa_var = cfa_root_group.createVariable(
+                var_name=name,
+                nc_dtype=np.dtype(datatype),
+                dim_names=list(dimensions),
+                subarray_shape=subarray_shape,
+                max_subarray_size=max_subarray_size
+            )
         else:
             self._cfa_var = None
-            nc_dimensions=dimensions
+            nc_dimensions = dimensions
 
         # Initialise the base class
         super().__init__(
@@ -186,6 +189,73 @@ class s3Variable(netCDF4.Variable):
                 return self._cfa_var.metadata[name]
             else:
                 return super().__getattr(name)
+
+    def delncattr(self, name):
+        """Override delncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            try:
+                self._cfa_var.metadata.pop(name)
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in variable {}".format(
+                    name, self.name
+                ))
+        else:
+            super().delncattr(name, value)
+
+    def getncattr(self, name):
+        """Override getncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            try:
+                return self._cfa_var.metadata[name]
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in variable {}".format(
+                    name, self.name
+                ))
+        else:
+            return super().getncattr(name)
+
+    def ncattrs(self):
+        """Override ncattrs function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            return self._cfa_var.metadata.keys()
+        else:
+            return super().ncattrs()
+
+    def setncattr(self, name, value):
+        """Override setncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            self._cfa_var.metadata[name] = value
+        else:
+            super().setncattr(name, value)
+
+    def setncattr_string(self, name, value):
+        """Override setncattr_string function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            self._cfa_var.metadata[name] = value
+        else:
+            super().setncattr_string(name, value)
+
+    def setncatts(self, attdict):
+        """Override setncattrs function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            for k in attdict:
+                self._cfa_var.metadata[k] = attdict[k]
+        else:
+            super().setncatts(attdict)
 
 class s3Group(netCDF4.Group):
     """
@@ -256,6 +326,72 @@ class s3Group(netCDF4.Group):
             self._cfa_group.renameVariable(oldname, newname)
         super().renameVariable(oldname, newname)
 
+    def delncattr(self, name):
+        """Override delncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            try:
+                self._cfa_group.metadata.pop(name)
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in variable {}".format(
+                    name, self.name
+                ))
+        else:
+            super().delncattr(name, value)
+
+    def getncattr(self, name):
+        """Override getncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            try:
+                return self._cfa_group.metadata[name]
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in variable {}".format(
+                    name, self.name
+                ))
+        else:
+            return super().getncattr(name)
+
+    def ncattrs(self):
+        """Override ncattrs function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            return self._cfa_group.metadata.keys()
+        else:
+            return super().ncattrs()
+
+    def setncattr(self, name, value):
+        """Override setncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            self._cfa_group.metadata[name] = value
+        else:
+            super().setncattr(name, value)
+
+    def setncattr_string(self, name, value):
+        """Override setncattr_string function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            self._cfa_group.metadata[name] = value
+        else:
+            super().setncattr_string(name, value)
+
+    def setncatts(self, attdict):
+        """Override setncattrs function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_group") and self._cfa_group:
+            for k in attdict:
+                self._cfa_group.metadata[k] = attdict[k]
+        else:
+            super().setncatts(attdict)
 
 class s3Dataset(netCDF4.Dataset):
     """
@@ -352,6 +488,10 @@ class s3Dataset(netCDF4.Dataset):
 
     def close(self):
         """Close the Dataset."""
+        # write the metadata to (all) the file(s)
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            parser = CFA_netCDFParser()
+            parser.write(self._cfa_dataset, self)
         # call the base class close method
         nc_bytes = super().close()
         self.file_object.close(nc_bytes)
@@ -417,10 +557,6 @@ class s3Dataset(netCDF4.Dataset):
 
     def renameVariable(self, oldname, newname):
         """Rename the variable by overloading the base method."""
-        if not oldname in self.variables:
-            raise APIException(
-                "Variable name: {} does not exist.".format(oldname)
-            )
         # get the cfa root group
         if self._cfa_dataset:
             cfa_root_group = self._cfa_dataset.getGroup("root")
@@ -495,3 +631,66 @@ class s3Dataset(netCDF4.Dataset):
             file_type = 'NOT_NETCDF'
             file_version = 0
         return file_type, file_version
+
+    def delncattr(self, name):
+        """Override delncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            try:
+                self._cfa_dataset.metadata.pop(name)
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in dataset".format(name))
+        else:
+            super().delncattr(name, value)
+
+    def getncattr(self, name):
+        """Override getncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            try:
+                return self._cfa_dataset.metadata[name]
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in dataset".format(name))
+        else:
+            return super().getncattr(name)
+
+    def ncattrs(self):
+        """Override ncattrs function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            return self._cfa_dataset.metadata.keys()
+        else:
+            return super().ncattrs()
+
+    def setncattr(self, name, value):
+        """Override setncattr function to manipulate the metadata dictionary,
+        rather than the netCDF file.  The attributes are copied from the
+        metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            self._cfa_dataset.metadata[name] = value
+        else:
+            super().setncattr(name, value)
+
+    def setncattr_string(self, name, value):
+        """Override setncattr_string function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            self._cfa_dataset.metadata[name] = value
+        else:
+            super().setncattr_string(name, value)
+
+    def setncatts(self, attdict):
+        """Override setncattrs function to manipulate the metadata
+        dictionary, rather than the netCDF file.  The attributes are copied from
+        the metadata dictionary on write."""
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            for k in attdict:
+                self._cfa_dataset.metadata[k] = attdict[k]
+        else:
+            super().setncatts(attdict)
