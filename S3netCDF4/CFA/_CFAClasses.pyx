@@ -9,6 +9,7 @@ import numpy as np
 cimport numpy as np
 from copy import copy
 import json
+import os.path
 
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFASplitter import CFASplitter
@@ -396,11 +397,12 @@ cdef class CFAGroup:
             partition_defs = cfa_splitter.getPartitionDefinitions()
 
             # create the base filename
-            base_filename = self.dataset.getName() + "/"
+            file_path = self.dataset.getName()
+            # get just the filename, stripped of ".nc"
+            file_name = os.path.basename(file_path).replace(".nc", "")
+            base_filename = file_path + "/" + file_name
             if self.grp_name != 'root':
-                base_filename += self.dataset.getName() + "." + self.grp_name
-            else:
-                base_filename += self.dataset.getName()
+                base_filename += "." + self.grp_name
             base_filename += "." + var_name + "."
 
             # loop over all partitions and create them and the subarrays
