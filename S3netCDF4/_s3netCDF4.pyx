@@ -93,14 +93,14 @@ class s3Variable(netCDF4.Variable):
                 nc_dimensions = (name,)
             else:
                 nc_dimensions = list([])
-            # only create the cfa variable for field variables
-            self._cfa_var = parent._cfa_group.createVariable(
-                var_name=name,
-                nc_dtype=np.dtype(datatype),
-                dim_names=list(dimensions),
-                subarray_shape=subarray_shape,
-                max_subarray_size=max_subarray_size
-            )
+                # only create the cfa variable for field variables
+                self._cfa_var = parent._cfa_group.createVariable(
+                    var_name=name,
+                    nc_dtype=np.dtype(datatype),
+                    dim_names=list(dimensions),
+                    subarray_shape=subarray_shape,
+                    max_subarray_size=max_subarray_size
+                )
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
         elif hasattr(parent, "_cfa_dataset") and parent._cfa_dataset:
@@ -118,14 +118,14 @@ class s3Variable(netCDF4.Variable):
                 nc_dimensions = (name,)
             else:
                 nc_dimensions = list([])
-            # create the CFA var
-            self._cfa_var = cfa_root_group.createVariable(
-                var_name=name,
-                nc_dtype=np.dtype(datatype),
-                dim_names=list(dimensions),
-                subarray_shape=subarray_shape,
-                max_subarray_size=max_subarray_size
-            )
+                # create the CFA var for field variables only
+                self._cfa_var = cfa_root_group.createVariable(
+                    var_name=name,
+                    nc_dtype=np.dtype(datatype),
+                    dim_names=list(dimensions),
+                    subarray_shape=subarray_shape,
+                    max_subarray_size=max_subarray_size
+                )
         else:
             self._cfa_var = None
             nc_dimensions = dimensions
