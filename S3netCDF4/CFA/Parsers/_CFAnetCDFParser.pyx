@@ -17,9 +17,18 @@ from _CFAParser import CFA_Parser
 class CFA_netCDFParser(CFA_Parser):
 
     def __init__(self):
-        """Do nothing, but don't call the base class as that will raise
-        NotImplementedError"""
-        pass
+        """Do nothing but set the CFA version used, but don't call the base
+        class as that will raise NotImplementedError"""
+        self.CFA_conventions = "CFA-0.4"
+
+    def is_file(self, nc_dataset):
+        """Return whether this input nc_dataset has the requisite metadata to
+        mark it as a CFA file."""
+        if not "Conventions" in nc_dataset.ncattrs():
+            return False
+        if not "CFA" in nc_dataset.getncattr("Conventions"):
+            return False
+        return True
 
     def read(self, nc_dataset):
         """Parse an already open netcdf_dataset to build the _CFAClasses
@@ -35,58 +44,54 @@ class CFA_netCDFParser(CFA_Parser):
         """
 
         # check this is a CFA file
-        if not "Conventions" in nc_dataset.ncattrs():
-            raise CFAError("Not a CFA file.")
-        if not "CFA" in nc_dataset.getncattr("Conventions"):
+        if not self.is_file(nc_dataset):
             raise CFAError("Not a CFA file.")
 
         # check to see if there are any groups and, if there is, create a CFAgroup
         # and add the nc_group to a dictionary of groups
         nc_groups = {}
         if len(nc_dataset.groups) != 0:
-            for group in nc_dataset.groups:
-                grp_name = group.name
-                nc_groups[grp_name] = nc_dataset.group[grp_name]
+            for grp_name in nc_dataset.groups:
+                nc_groups[grp_name] = nc_dataset.groups[grp_name]
         # if there isn't then create a root group that is the Dataset
         else:
             nc_groups["root"] = nc_dataset
 
+        # get the metadata from the dataset in a new dictionary
+        nc_dataset_md = {a:nc_dataset.getncattr(a) for a in nc_dataset.ncattrs()}
         # create the CFADataset, with the metadata and format, and empty groups
         cfa_dataset = CFADataset(
                           name="",
                           format=nc_dataset.data_model,
-                          metadata=dict(nc_dataset.__dict__)
+                          metadata=nc_dataset_md
                       )
         # now loop over all the groups, and add a CFAGroup to each dataset, then
         # the variables and dimensions contained in that group
-        for grp_name in nc_groups:
-            cfa_group = cfa_dataset.createGroup(grp_name)
+        for group_name in nc_groups:
+            nc_group = nc_groups[group_name]
+            nc_group_md = {a:nc_group.getncattr(a) for a in nc_group.ncattrs()}
+            cfa_group = cfa_dataset.createGroup(group_name, nc_group_md)
             # next parse the dimensions
             for nc_dimname in nc_dataset.dimensions:
                 # get the dimension's associated variable
-                dim_var = nc_dataset.variables[nc_dimname]
-                dim_dim = nc_dataset.dimensions[nc_dimname]
-                # get the metadata
-                nc_dim_atts = dict(dim_var.__dict__)
+                nc_dim = nc_dataset.dimensions[nc_dimname]
                 # create the dimension and append to list of cfa_dims
-                # is the dimension unlimited?
-                unlimited = nc_dataset.dimensions[nc_dimname].isunlimited()
                 cfa_dim = cfa_group.createDimension(
                               dim_name=nc_dimname,
-                              dim_len=dim_dim.size,
-                              metadata=nc_dim_atts
+                              dim_len=nc_dim.size,
+                              metadata={}
                             )
 
             # loop over the variables in the group / dataset
-            for nc_varname in nc_groups[grp_name].variables:
-                nc_var = nc_groups[grp_name].variables[nc_varname]
-                nc_var_atts = dict(nc_var.__dict__)
+            for nc_varname in nc_groups[group_name].variables:
+                nc_var = nc_groups[group_name].variables[nc_varname]
+                nc_var_md = {a:nc_var.getncattr(a) for a in nc_var.ncattrs()}
                 cfa_var = cfa_group.createVariable(
                               var_name=nc_varname,
                               nc_dtype=nc_var.dtype,
-                              metadata=nc_var_atts
+                              metadata=nc_var_md
                             )
-                cfa_var.parse(nc_var_atts)
+                cfa_var.parse(nc_var_md)
 
         return cfa_dataset
 
@@ -102,6 +107,13 @@ class CFA_netCDFParser(CFA_Parser):
         Returns:
             None
         """
+        # add the CFA conventions into the metadata
+        dataset_metadata = cfa_dataset.getMetadata()
+        if "Conventions" in dataset_metadata:
+            dataset_metadata["Conventions"] += " " + self.CFA_conventions
+        else:
+            dataset_metadata["Conventions"] = self.CFA_conventions
+
         # set the global metadata
         netCDF4.Dataset.setncatts(nc_dataset, cfa_dataset.getMetadata())
         # get the groups
@@ -127,6 +139,6 @@ class CFA_netCDFParser(CFA_Parser):
                 if cfa_var.getRole() != "":
                     var_md['cf_role'] = cfa_var.getRole()
                     var_md['cfa_dimensions'] = " ".join(cfa_var.getDimensions())
-                    var_md['cfa_array'] = json.dumps(cfa_var.dump())
+                    var_md['cfa_array'] = json.dumps(cfa_var.dump()['cfa_array'])
                 # set the metadata for the variable
                 netCDF4.Variable.setncatts(nc_var, var_md)

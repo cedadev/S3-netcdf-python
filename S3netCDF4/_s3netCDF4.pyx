@@ -26,10 +26,10 @@ from S3netCDF4.Managers._FileManager import FileManager
 # the _private_atts list from netCDF4._netCDF4 will be extended with these
 _s3_private_atts = [\
  # member variables
- '_file_manager', '_file_object', 'file_object', '_mode',
- '_interpret_netCDF_filetype',
- '_cfa_dataset', '_cfa_group', '_cfa_var', '_cfa_dim'
-]
+ 'file_object', '_file_object', '_file_manager', '_mode',
+ '_cfa_var', '_cfa_dim', '_cfa_group', '_cfa_dataset'
+ ]
+
 netCDF4._private_atts.extend(_s3_private_atts)
 
 class s3Dimension(netCDF4.Dimension):
@@ -172,23 +172,26 @@ class s3Variable(netCDF4.Variable):
             super().__setattr__(name, value)
 
     def __getattr__(self, name):
-        """Override the __getattr__ for the variable and return the corresponding
+        """Override the __getattr__ for the variable and return the
         corresponding attribute from the cfa_metadata."""
         # if name in _private_atts, it is stored at the python
         # level and not in the netCDF file.
         if name.startswith('__') and name.endswith('__'):
             # if __dict__ requested, return a dict with netCDF attributes.
             if name == '__dict__':
-                return super().__getattr(name)
+                return super().__getattr__(name)
             else:
                 raise AttributeError
         elif name in netCDF4._private_atts:
             return self.__dict__[name]
         else:
             if hasattr(self, "_cfa_var") and self._cfa_var:
-                return self._cfa_var.metadata[name]
+                try:
+                    return self._cfa_var.metadata[name]
+                except KeyError:
+                    return super().__getattr__(name)
             else:
-                return super().__getattr(name)
+                return super().__getattr__(name)
 
     def delncattr(self, name):
         """Override delncattr function to manipulate the metadata dictionary,
@@ -213,10 +216,7 @@ class s3Variable(netCDF4.Variable):
             try:
                 return self._cfa_var.metadata[name]
             except KeyError:
-                raise APIException(
-                    "Attribute {} not found in variable {}".format(
-                    name, self.name
-                ))
+                return super().getncattr(name)
         else:
             return super().getncattr(name)
 
@@ -253,7 +253,8 @@ class s3Variable(netCDF4.Variable):
         the metadata dictionary on write."""
         if hasattr(self, "_cfa_var") and self._cfa_var:
             for k in attdict:
-                self._cfa_var.metadata[k] = attdict[k]
+                if not k in netCDF4._private_atts:
+                    self._cfa_var.metadata[k] = attdict[k]
         else:
             super().setncatts(attdict)
 
@@ -349,10 +350,7 @@ class s3Group(netCDF4.Group):
             try:
                 return self._cfa_group.metadata[name]
             except KeyError:
-                raise APIException(
-                    "Attribute {} not found in variable {}".format(
-                    name, self.name
-                ))
+                return super().getncattr(name)
         else:
             return super().getncattr(name)
 
@@ -482,6 +480,10 @@ class s3Dataset(netCDF4.Dataset):
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
+            # parse the CFA file if it is one
+            parser = CFA_netCDFParser()
+            if parser.is_file(self):
+                self._cfa_dataset = parser.read(self)
         else:
             # no other modes are supported
             raise APIException("Mode " + mode + " not supported.")
@@ -489,9 +491,11 @@ class s3Dataset(netCDF4.Dataset):
     def close(self):
         """Close the Dataset."""
         # write the metadata to (all) the file(s)
-        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+        if (self._mode == 'w' and
+            hasattr(self, "_cfa_dataset") and
+            self._cfa_dataset):
             parser = CFA_netCDFParser()
-            parser.write(self._cfa_dataset, self)
+            #parser.write(self._cfa_dataset, self)
         # call the base class close method
         nc_bytes = super().close()
         self.file_object.close(nc_bytes)
@@ -653,8 +657,7 @@ class s3Dataset(netCDF4.Dataset):
             try:
                 return self._cfa_dataset.metadata[name]
             except KeyError:
-                raise APIException(
-                    "Attribute {} not found in dataset".format(name))
+                return super().getncattr(name)
         else:
             return super().getncattr(name)
 

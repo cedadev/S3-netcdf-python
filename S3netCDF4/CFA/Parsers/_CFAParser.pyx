@@ -19,3 +19,6 @@ class CFA_Parser(object):
 
     def write(self, cfa_dataset, output_object):
         raise NotImplementedError
+
+    def is_file(self, input_object):
+        raise NotImplementedError

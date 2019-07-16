@@ -25,7 +25,8 @@ cdef class CFADataset:
        | cfa_groups         dict<CFAGroups>             |
        | metadata           dict<mixed>                 |
        +------------------------------------------------+
-       | CFAGroup           createGroup(string grp_name)|
+       | CFAGroup           createGroup(string grp_name,|
+       |                                dict metadata)  |
        | CFAGroup           getGroup(string grp_name)   |
        | bool               renameGroup(string old_name,|
        |                                string new_name)|
@@ -93,11 +94,13 @@ cdef class CFADataset:
         """Overload the setattribute to return an error"""
         raise CFAError("Not permitted.")
 
-    cpdef CFAGroup createGroup(CFADataset self, basestring grp_name):
+    cpdef CFAGroup createGroup(CFADataset self, basestring grp_name,
+                               dict metadata=dict()):
         """Create a group with the name grp_name.
 
         Args:
             grp_name (string): the name of the group.
+            metadata (dict)  : the metadata for the group
 
         Returns:
             CFAGroup: The instance of the group if created successfully.
@@ -112,7 +115,11 @@ cdef class CFADataset:
                 "Could not createGroup {}, group already exists"
             ).format(grp_name))
         # create the group and add it to the dictionary of groups
-        self.cfa_groups[grp_name] = CFAGroup(grp_name, dataset=self)
+        self.cfa_groups[grp_name] = CFAGroup(
+                                        grp_name,
+                                        dataset=self,
+                                        metadata=metadata
+                                    )
         # return the group
         return self.cfa_groups[grp_name]
 
