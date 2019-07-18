@@ -67,13 +67,13 @@
     | var_name       string                          |             | dim_name         string                        |
     | metadata       dict<mixed>                     |             | dim_len          int                           |
     | cf_role        string                          |             | metadata         dict<mixed>                   |
-    | pmdimensions   array<string>                   |             +------------------------------------------------+
-    | pmshape        array<int>                      |             | string           getName()                     |
-    | base           string                          |             | dict<mixed>      getMetadata()                 |
-    | partitions     array<CFAPartition>             |             | array<int>       getIndices()                  |
-    +------------------------------------------------+             |                                                |
-    | string         getName()                       |             +------------------------------------------------+
-    | dict<mixed>    getMetadata()                   |
+    | pmdimensions   array<string>                   |             | axis_type        string                        |
+    | pmshape        array<int>                      |             +------------------------------------------------+
+    | base           string                          |             | string           getName()                     |
+    | partitions     array<CFAPartition>             |             | dict<mixed>      getMetadata()                 |
+    +------------------------------------------------+             | array<int>       getIndices()                  |
+    | string         getName()                       |             | string           getAxisType                   |
+    | dict<mixed>    getMetadata()                   |             +------------------------------------------------+
     | list<string>   getDimensions()                 |
     | bool           parse(dict cfa_metadata)        |
     | CFAPartition   getPartition(array<int> index)  |

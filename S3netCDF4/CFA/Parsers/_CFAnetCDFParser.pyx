@@ -127,9 +127,9 @@ class CFA_netCDFParser(CFA_Parser):
             cfa_group = cfa_dataset.getGroup(group)
             # set the metadata for the group
             netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
-
+            # set the metadata for the variables
             for var in cfa_group.getVariables():
-                # get the actual variable
+                # get the actual cfa variable
                 cfa_var = cfa_group.getVariable(var)
                 # get the variable
                 nc_var = nc_group.variables[cfa_var.getName()]
@@ -142,3 +142,18 @@ class CFA_netCDFParser(CFA_Parser):
                     var_md['cfa_array'] = json.dumps(cfa_var.dump()['cfa_array'])
                 # set the metadata for the variable
                 netCDF4.Variable.setncatts(nc_var, var_md)
+            # set the metadata for the dimension variables
+            for dim_var in cfa_group.getDimensions():
+                # get the actual cfa dimensions
+                cfa_dim = cfa_group.getDimension(dim_var)
+                # get the netCDF variable for this dimension
+                try:
+                    nc_dimvar = nc_group.variables[cfa_dim.getName()]
+                    # copy the dimension metadata into the (dimension) variable
+                    # metadata
+                    dim_md = dict(cfa_dim.getMetadata())
+                    # set the metadata for the variable
+                    netCDF4.Variable.setncatts(nc_dimvar, dim_md)
+                except KeyError:
+                    pass # don't try to write to dimension with no associated
+                         # variable

@@ -17,9 +17,9 @@ import netCDF4._netCDF4 as netCDF4
 
 from _Exceptions import *
 from S3netCDF4.CFA._CFAClasses import *
-from S3netCDF4.CFA._CFAFunctions import *
 from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
 from S3netCDF4.Managers._FileManager import FileManager
+import time
 
 # these are class attributes that only exist at the python level (not in the
 # netCDF file).
@@ -27,7 +27,7 @@ from S3netCDF4.Managers._FileManager import FileManager
 _s3_private_atts = [\
  # member variables
  'file_object', '_file_object', '_file_manager', '_mode',
- '_cfa_var', '_cfa_dim', '_cfa_group', '_cfa_dataset'
+ '_cfa_var', '_cfa_dim', '_cfa_group', '_cfa_dataset',
  ]
 
 netCDF4._private_atts.extend(_s3_private_atts)
@@ -39,20 +39,24 @@ class s3Dimension(netCDF4.Dimension):
        files.
     """
     def __init__(self, parent, name, size=None,
-                 axis_type="N", metadata={}, **kwargs):
+                 axis_type="U", metadata={}, **kwargs):
         """Initialise the dimension.  This adds the CFADimension structure to
         the dimension as well as initialising the superclass."""
         super().__init__(parent, name, size, **kwargs)
         # Has this been called from a group?
         if hasattr(parent, "_cfa_group") and parent._cfa_group:
-            self._cfa_dim = parent._cfa_group.createDimension(name, size)
+            self._cfa_dim = parent._cfa_group.createDimension(
+                                name, size, axis_type=axis_type
+                            )
         # or has it been called from a dataset?
         elif hasattr(parent, "_cfa_dataset") and parent._cfa_dataset:
             if "root" in parent._cfa_dataset.getGroups():
                 cfa_root_group = parent._cfa_dataset.getGroup("root")
             else:
                 cfa_root_group = parent._cfa_dataset.createGroup("root")
-            self._cfa_dim = cfa_root_group.createDimension(name, size)
+            self._cfa_dim = cfa_root_group.createDimension(
+                                name, size, axis_type=axis_type
+                            )
         else:
             self._cfa_dim = None
         # Axis type metadata and metadata dictionary will be added to the
@@ -91,6 +95,8 @@ class s3Variable(netCDF4.Variable):
             # netCDF dimension.  If it is a field variable then don't assign.
             if name in parent._cfa_group.getDimensions():
                 nc_dimensions = (name,)
+                # get a reference to the already created cfa_dim
+                self._cfa_dim = parent._cfa_group.getDimension(name)
             else:
                 nc_dimensions = list([])
                 # only create the cfa variable for field variables
@@ -101,6 +107,7 @@ class s3Variable(netCDF4.Variable):
                     subarray_shape=subarray_shape,
                     max_subarray_size=max_subarray_size
                 )
+
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
         elif hasattr(parent, "_cfa_dataset") and parent._cfa_dataset:
@@ -116,6 +123,8 @@ class s3Variable(netCDF4.Variable):
             # variable, or empty if a field variable
             if name in cfa_root_group.getDimensions():
                 nc_dimensions = (name,)
+                # get a reference to the already created cfa_dim
+                self._cfa_dim = cfa_root_group.getDimension(name)
             else:
                 nc_dimensions = list([])
                 # create the CFA var for field variables only
@@ -148,6 +157,20 @@ class s3Variable(netCDF4.Variable):
             chunk_cache=chunk_cache
         )
 
+    def _setatt(self, cfa_object, name, value):
+        if name not in netCDF4._private_atts:
+            # we will rely on error checking in the super class __setattr__
+            # which we will call when the file is written
+            cfa_object.metadata[name] = value
+        elif not name.endswith('__'):
+            if hasattr(self, name):
+                raise AttributeError((
+                "'%s' is one of the reserved attributes %s, cannot rebind. "
+                "Use setncattr instead." % (name, tuple(_private_atts))
+            ))
+            else:
+                self.__dict__[name]=value
+
     def __setattr__(self, name, value):
         """Override the __setattr__ for the variable and store the attribute in
         the cfa_metadata.  This ensures that all of the metadata is passed down
@@ -156,18 +179,9 @@ class s3Variable(netCDF4.Variable):
         # if name in _private_atts, it is stored at the python
         # level and not in the netCDF file.
         if hasattr(self, "_cfa_var") and self._cfa_var:
-            if name not in netCDF4._private_atts:
-                # we will rely on error checking in the super class __setattr__
-                # which we will call when the file is written
-                self._cfa_var.metadata[name] = value
-            elif not name.endswith('__'):
-                if hasattr(self, name):
-                    raise AttributeError((
-                    "'%s' is one of the reserved attributes %s, cannot rebind. "
-                    "Use setncattr instead." % (name, tuple(_private_atts))
-                ))
-                else:
-                    self.__dict__[name]=value
+            self._setatt(self._cfa_var, name, value)
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            self._setatt(self._cfa_dim, name, value)
         else:
             super().__setattr__(name, value)
 
@@ -190,6 +204,11 @@ class s3Variable(netCDF4.Variable):
                     return self._cfa_var.metadata[name]
                 except KeyError:
                     return super().__getattr__(name)
+            elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+                try:
+                    return self._cfa_dim.metadata[name]
+                except KeyError:
+                    return super().__getattr__(name)
             else:
                 return super().__getattr__(name)
 
@@ -200,6 +219,14 @@ class s3Variable(netCDF4.Variable):
         if hasattr(self, "_cfa_var") and self._cfa_var:
             try:
                 self._cfa_var.metadata.pop(name)
+            except KeyError:
+                raise APIException(
+                    "Attribute {} not found in variable {}".format(
+                    name, self.name
+                ))
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            try:
+                self._cfa_dim.metadata.pop(name)
             except KeyError:
                 raise APIException(
                     "Attribute {} not found in variable {}".format(
@@ -217,6 +244,11 @@ class s3Variable(netCDF4.Variable):
                 return self._cfa_var.metadata[name]
             except KeyError:
                 return super().getncattr(name)
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            try:
+                return self._cfa_dim.metadata[name]
+            except KeyError:
+                return super().getncattr(name)
         else:
             return super().getncattr(name)
 
@@ -226,6 +258,8 @@ class s3Variable(netCDF4.Variable):
         metadata dictionary on write."""
         if hasattr(self, "_cfa_var") and self._cfa_var:
             return self._cfa_var.metadata.keys()
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            return self._cfa_dim.metadata.keys()
         else:
             return super().ncattrs()
 
@@ -235,6 +269,8 @@ class s3Variable(netCDF4.Variable):
         metadata dictionary on write."""
         if hasattr(self, "_cfa_var") and self._cfa_var:
             self._cfa_var.metadata[name] = value
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            self._cfa_dim.metadata[name] = value
         else:
             super().setncattr(name, value)
 
@@ -244,6 +280,8 @@ class s3Variable(netCDF4.Variable):
         the metadata dictionary on write."""
         if hasattr(self, "_cfa_var") and self._cfa_var:
             self._cfa_var.metadata[name] = value
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            self._cfa_dim.metadata[name] = value
         else:
             super().setncattr_string(name, value)
 
@@ -255,8 +293,44 @@ class s3Variable(netCDF4.Variable):
             for k in attdict:
                 if not k in netCDF4._private_atts:
                     self._cfa_var.metadata[k] = attdict[k]
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            for k in attdict:
+                if not k in netCDF4._private_atts:
+                    self._cfa_dim.metadata[k] = attdict[k]
         else:
             super().setncatts(attdict)
+
+    def __setitem__(self, elem, data):
+        """Override the netCDF4.Variable __setitem__ method to assign data to
+        the correct subarray file.
+        The CFAVariable class has a method which will determine:
+            1. The path of the subarray file(s)
+            2. The slice in the subarray(s) to write into
+            3. The slice from the input data to read from, when transferring
+            data from the input data to the subarray
+        """
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            # get the above details from the CFA variable, details are returned as:
+            # (filename, varname, source_slice, target_slice)
+            index_list = self._cfa_var.__getitem__(elem)
+        else:
+            super().__setitem__(elem, data)
+
+    def __getitem__(self, elem):
+        """Override the netCDF4.Variable __getitem__ method to assign data to
+        the correct subarray file.
+        The CFAVariable class has a method which will determine:
+            1. The path of the subarray file(s)
+            2. The slice in the subarray(s) to read from
+            3. The slice in the output array to write to
+        """
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            # get the above details from the CFA variable, details are returned as:
+            # (filename, varname, source_slice, target_slice)
+            index_list = self._cfa_var.__getitem__(elem)
+        else:
+            super().__getitem__(elem, data)
+
 
 class s3Group(netCDF4.Group):
     """
@@ -275,7 +349,7 @@ class s3Group(netCDF4.Group):
             self._cfa_group = None
 
     def createDimension(self, dimname, size=None,
-                        axis_type=None, metadata={}):
+                        axis_type="U", metadata={}):
         """Create a dimension in the group.  Add the CFADimension structure to
         the group by calling createDimension on self._cfa_group."""
         self.dimensions[dimname] = s3Dimension(
@@ -495,13 +569,13 @@ class s3Dataset(netCDF4.Dataset):
             hasattr(self, "_cfa_dataset") and
             self._cfa_dataset):
             parser = CFA_netCDFParser()
-            #parser.write(self._cfa_dataset, self)
+            parser.write(self._cfa_dataset, self)
         # call the base class close method
         nc_bytes = super().close()
         self.file_object.close(nc_bytes)
 
     def createDimension(self, dimname, size=None,
-                        axis_type=None, metadata={}):
+                        axis_type="U", metadata={}):
         """Create a dimension in the Dataset.  Add the CFADimension structure to
         the Dataset by calling createDimension on self._cfa_dataset."""
         if dimname in self.dimensions:

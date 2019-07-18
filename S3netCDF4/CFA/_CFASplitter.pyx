@@ -42,6 +42,7 @@ cdef class CFASplitter:
                     'Z' - Z / level axis
                     'T' - Time axis
                     'N' - non of the above axis
+                    'U' - unspecified axis, this needs to be overwritten
         """
         self.shape = shape
         if len(axis_types) == 0:

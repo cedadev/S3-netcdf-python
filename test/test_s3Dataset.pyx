@@ -10,25 +10,25 @@ def create_test_dataset(ncd, shape=[10,10,10,10]):
 
     # create the dimension, the variable, add the variable values and some
     # metadata
-    time_dim = ncd.createDimension("time", shape[0])
+    time_dim = ncd.createDimension("time", shape[0], axis_type="T")
     time_var = ncd.createVariable("time", np.float32, "time")
     time_var[:] = np.arange(0, shape[0])
     time_var.units = "days since 2000-01-01"
 
-    level_dim = ncd.createDimension("level", shape[1])
+    level_dim = ncd.createDimension("level", shape[1], axis_type="Z")
     level_var = ncd.createVariable("level", np.float32, "level")
     level_var[:] = np.arange(0, shape[1])*100
     level_var.standard_name = "height above sea-level"
     level_var.units = "m"
 
-    latitude_dim = ncd.createDimension("latitude", shape[2])
+    latitude_dim = ncd.createDimension("latitude", shape[2], axis_type="Y")
     latitude_var = ncd.createVariable("latitude", np.float32, "latitude")
     latitude_vals = 90.0 - np.arange(0, shape[2]) * 180.0/(shape[2]-1)
     latitude_var[:] = latitude_vals
     latitude_var.standard_name = "latitude"
     latitude_var.units = "degrees north"
 
-    longitude_dim = ncd.createDimension("longitude", shape[3])
+    longitude_dim = ncd.createDimension("longitude", shape[3], axis_type="X")
     longitude_var = ncd.createVariable("longitude", np.float32, "longitude")
     longitude_vals = np.arange(0, shape[3]) * 360.0/shape[3]
     longitude_var[:] = longitude_vals

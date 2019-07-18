@@ -288,6 +288,40 @@ cdef class CFAGroup:
             raise CFAGroupError("{} is neither a variable nor a dimension"
                                 "".format(name))
 
+    cpdef _ensure_axis_has_type(CFAGroup self, basestring var_name):
+        """Before calling the splitting algorithm (which may be called by
+        createVariable), we need to assign the axis types to the dimensions,
+        if the axis type is undefined (=="U").
+         These axis types can be:
+           T - time - (axis="T", name="t??" or name contains "time")
+           Z - level - (axis="Z", name="z??" or name contains "level")
+           Y - y axis / latitude (axis="Y", name="lat*" or name="y??")
+           X - x axis / longitude (axis="X", name="lon*" or name="x??")
+           N - not defined."""
+        # loop over the cfa_dims
+        dimensions = self.getDimensions()
+        for d in dimensions:
+            # get the dimension and the dimension variable
+            dim = self.getDimension(d)
+            axis_type = dim.getAxisType()
+            if axis_type != "U":
+                continue
+            dim_md = dim.getMetadata()
+            if "axis" in dim_md and dim_md["axis"] in ["T", "Z", "Y", "X", "N"]:
+                dim.axis_type = dim_md["axis"]
+            # no variable, or no axis attribute so we're going to guess from the
+            # name of the dimension
+            elif (len(d) < 3 and d[0] == "t") or "time" in d:
+                dim.axis_type = "T"
+            elif (len(d) < 3 and d[0] == "z") or "level" in d:
+                dim.axis_type = "Z"
+            elif (len(d) < 3 and d[0] == "y") or d[0:3] == "lat":
+                dim.axis_type = "Y"
+            elif (len(d) < 3 and d[0] == "x") or d[0:3] == "lon":
+                dim.axis_type = "X"
+            else:
+                dim.axis_type = "N"
+
     cpdef CFAVariable createVariable(CFAGroup self,
                          basestring var_name,
                          np.dtype nc_dtype,
@@ -322,6 +356,10 @@ cdef class CFAGroup:
             raise CFAVariableError((
                 "Could not createVariable {}, variable already exists"
             ).format(var_name))
+
+        # ensure that the axes have a type associated with them before running
+        # the splitting algorithm
+        self._ensure_axis_has_type(var_name)
 
         # There are three cases for creating the CFA subarray:
         # 1. No dimensions are given - the array is just created and returned.
@@ -381,10 +419,12 @@ cdef class CFAGroup:
             # get the shape and axis types from the dimensions
             shape = []
             axis_types = []
+            # assign axis types
             for dim_name in dim_names:
                 dim = self.cfa_dims[dim_name]
                 shape.append(dim.getLen())
-                axis_types.append(dim.getAxisType())
+                axis_type = dim.getAxisType()
+                axis_types.append(axis_type)
 
             # create the splitter, even if the subarray shape is known
             cfa_splitter = CFASplitter(
@@ -491,7 +531,7 @@ cdef class CFAGroup:
     cpdef CFADimension createDimension(CFAGroup self,
                           basestring dim_name="",
                           int dim_len=-1,
-                          basestring axis_type="N",
+                          basestring axis_type="U",
                           dict metadata=dict()
                          ):
         """Create a CFA dimension and add it to the group"""
@@ -671,7 +711,7 @@ cdef class CFAVariable:
         """
         cdef np.ndarray slices                # don't use slices, use nx3
         cdef list slice_range                 # dimesional numpy arrays
-        cdef list index_list                  # for speeeeeeeeeeeeeeed!
+        cdef list index_list                  # for speed!
         cdef list new_index_list
         cdef np.ndarray source_slice          # slice in the source partition
         cdef np.ndarray target_slice          # slice in the target master array
@@ -717,7 +757,6 @@ cdef class CFAVariable:
                     "Index into CFA array is out of range: {}".format(
                         in_key)
                     )
-
 
         # now we have the slices we can determine the partitions, using the
         # partition shape
@@ -967,13 +1006,13 @@ cdef class CFADimension:
 
     cdef public basestring dim_name
     cdef int dim_len
-    cdef dict metadata
-    cdef basestring axis_type
+    cdef public dict metadata
+    cdef public basestring axis_type
 
     def __init__(CFADimension self,
                  basestring dim_name="",
                  int dim_len=-1,
-                 basestring axis_type="N",
+                 basestring axis_type="U",
                  dict metadata=dict()
                 ):
         """Initialise the CFADim object"""
