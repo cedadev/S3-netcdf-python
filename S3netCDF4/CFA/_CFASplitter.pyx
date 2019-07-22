@@ -26,6 +26,7 @@ cdef class CFASplitter:
     cdef list axis_types
     cdef int max_subarray_size
 
+
     def __init__(self,
                  np.ndarray shape,
                  int max_subarray_size=0,
@@ -44,6 +45,7 @@ cdef class CFASplitter:
                     'N' - non of the above axis
                     'U' - unspecified axis, this needs to be overwritten
         """
+        DEFAULT_SUBARRAY_SIZE = 50*1024*1024 # 50MB default object size
         self.shape = shape
         if len(axis_types) == 0:
             # build the axis_types by guessing what they should be
@@ -65,7 +67,7 @@ cdef class CFASplitter:
             self.axis_types = axis_types
 
         if max_subarray_size == 0:
-            self.max_subarray_size = 2*1024*1024 # 2MB default object size
+            self.max_subarray_size = DEFAULT_SUBARRAY_SIZE
         else:
             self.max_subarray_size = max_subarray_size
 

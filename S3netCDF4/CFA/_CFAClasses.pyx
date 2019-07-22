@@ -1153,7 +1153,7 @@ cdef class CFASubarray:
         | shape          array<int>                      |
         +------------------------------------------------+
         | bool           parse(dict cfa_metadata)        |
-        | dict<mixed>    dump()
+        | dict<mixed>    dump()                          |
         | string         getncVar()                      |
         | string         getFile()                       |
         | string         getFormat()                     |
