@@ -85,8 +85,7 @@ class s3Variable(netCDF4.Variable):
            netCDF attribute:
               :cfa_dimensions = "dim1 dim2 dim3"
         """
-        # first check if this is a group, and create within the group if it
-        # is
+        # first check if this is a group, and create within the group if it is
         if type(dimensions) is not tuple:
             raise APIException("Dimensions has to be of type tuple")
 
@@ -658,11 +657,16 @@ class s3Dataset(netCDF4.Dataset):
     def _getVariables(self):
         return super().__getattribute__("variables")
 
+    def _getGroups(self):
+        return super().__getattribute__("groups")
+
     def __getattribute__(self, attrname, *args, **kwargs):
         """Here we override several netCDF4.Dataset functionalities, in order
         to intercept and return CFA functionality instead."""
         if attrname == "variables":
             return self._getVariables()
+        if attrname == "groups":
+            return self._getGroups()
         return super().__getattribute__(attrname)
 
     def _interpret_netCDF_filetype(data):

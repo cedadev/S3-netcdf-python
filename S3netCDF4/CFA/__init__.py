@@ -77,7 +77,6 @@
     | list<string>   getDimensions()                 |
     | bool           parse(dict cfa_metadata)        |
     | CFAPartition   getPartition(array<int> index)  |
-    | list<CFAPartition> getPartitions()             |
     +------------------------------------------------+
                     |
                     |

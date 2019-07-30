@@ -14,6 +14,32 @@ import os.path
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFASplitter import CFASplitter
 
+"""
+   These are the custom CompoundTypes for the Subarray and Partition in the
+   netCDF4 implementation of CFA-netCDF.  They are written into the netCDF file
+   as
+"""
+
+# create a Subarray datatype
+Subarray_type = np.dtype([("ncvar", "S256"),
+                          ("file", "S2048"),
+                          ("format", "S16"),
+                          ("shape", "i4", (4, ))
+                        ])
+
+# create a partition datatype
+Partition_type = np.dtype([("index", "i4", (4, )),
+                           ("location", "i4", (4, 2)),
+                           ("subarray", Subarray_type)
+                         ])
+
+def numpy_string_to_python(np_string):
+    """Convert a numpy representation of a string (an array of characters) to
+    a Python string."""
+    return np_string.tostring().decode("utf-8").strip("\x00")
+
+""""""
+
 cdef class CFADataset:
     """
        Class containing details of a CFADataset (master array)
@@ -413,7 +439,6 @@ cdef class CFAGroup:
                         var_name=var_name,
                         nc_dtype=nc_dtype,
                         metadata=metadata,
-                        cf_role="cfa_variable"
                       )
         else:
             # get the shape and axis types from the dimensions
@@ -447,13 +472,16 @@ cdef class CFAGroup:
             file_path = self.dataset.getName()
             # get just the filename, stripped of ".nc"
             file_name = os.path.basename(file_path).replace(".nc", "")
+            # construct the base of the subarray filenames
             base_filename = file_path + "/" + file_name
+            # add the group if it is not root
             if self.grp_name != 'root':
                 base_filename += "." + self.grp_name
+            # add the varname
             base_filename += "." + var_name + "."
 
             # loop over all partitions and create them and the subarrays
-            partitions = []
+            partitions = np.empty(pmshape, dtype=Partition_type)
             for partition_def in partition_defs:
                 # create the name of the subarray file
                 filename = (base_filename +
@@ -462,31 +490,28 @@ cdef class CFAGroup:
                            )
                 subarray_shape = (partition_def.location[:,1] -
                                   partition_def.location[:,0])
-                # create the subarray first
-                subarray = CFASubarray(
-                               ncvar=var_name,
-                               file=filename,
-                               format=self.dataset.getFormat(),
-                               shape=subarray_shape
-                           )
-                partition = CFAPartition(
-                               index=partition_def.index,
-                               location=partition_def.location,
-                               subarray=subarray
-                            )
-                partitions.append(partition)
-
+                # now create the partition with the subarray embedded
+                partitions[tuple(partition_def.index)] = (
+                    partition_def.index,
+                    partition_def.location,
+                    (
+                        var_name,
+                        filename,
+                        self.dataset.getFormat(),
+                        subarray_shape
+                    )
+                )
             # create the new variable
             self.cfa_vars[var_name] = CFAVariable(
-                        var_name=var_name,
-                        nc_dtype=nc_dtype,
-                        metadata=metadata,
-                        cf_role="cfa_variable",
-                        cfa_dimensions=dim_names,
-                        pmdimensions=dim_names,
-                        pmshape=pmshape,
-                        partitions=partitions
-                      )
+                var_name=var_name,
+                nc_dtype=nc_dtype,
+                metadata=metadata,
+                cf_role="cfa_variable",
+                cfa_dimensions=dim_names,
+                pmdimensions=dim_names,
+                pmshape=pmshape,
+                partitions=partitions
+            )
 
         return self.cfa_vars[var_name]
 
@@ -615,7 +640,7 @@ cdef class CFAVariable:
         | pmdimensions   list<string>                    |
         | pmshape        array<int>                      |
         | base           string                          |
-        | partitions     list<CFAPartition>              |
+        | partitions     array<Partition_type>           |
         +------------------------------------------------+
         | string         getName()                       |
         | np.dtype       getType()                       |
@@ -625,8 +650,7 @@ cdef class CFAVariable:
         | np.ndarray     shape()                         |
         | bool           parse(dict cfa_metadata)        |
         | dict<mixed>    dump()                          |
-        | CFAPartition   getPartition(array<int> index)  |
-        | list<CFAPartition> getPartitions()             |
+        | Partition_type getPartition(array<int> index)  |
         +------------------------------------------------+
     """
 
@@ -638,8 +662,7 @@ cdef class CFAVariable:
     cdef list pmdimensions
     cdef np.ndarray pmshape
     cdef basestring base
-    cdef list partitions
-    cdef np.ndarray _pm_index_lut
+    cdef np.ndarray partitions
     cdef np.ndarray _shape
 
     cfa_variable_metadata_keys = ["cf_role", "cfa_dimensions", "cfa_array"]
@@ -652,7 +675,7 @@ cdef class CFAVariable:
                  list pmdimensions=list(),
                  np.ndarray pmshape=np.array([]),
                  basestring base="",
-                 list partitions=list(),
+                 np.ndarray partitions=np.array([]),
                  dict metadata=dict()
                 ):
         """Initialise a CFAVariable object"""
@@ -665,7 +688,6 @@ cdef class CFAVariable:
         self.pmdimensions = list(pmdimensions)
         self.pmshape = np.array(pmshape)
         self.base = basestring(base)
-        self.partitions = list(partitions)
         # we have to process the metadata to exclude the cfa directives
         self.metadata = dict()
         for k in metadata:
@@ -675,11 +697,11 @@ cdef class CFAVariable:
         self._shape = np.array([])
 
         # build the lookup array if partitions are added
-        if len(self.partitions) != 0:
-            self._pm_index_lut = np.empty(tuple(self.pmshape), dtype=np.int32)
-            for p in range(0, len(self.partitions)):
-                index = tuple(self.partitions[p].getIndex())
-                self._pm_index_lut[index] = p
+        if partitions.size != 0:
+            # copy the partitions
+            self.partitions = np.array(partitions)
+        else:
+            self.partitions = np.empty(self.pmshape, dtype=Partition_type)
 
     def __repr__(CFAVariable self):
         """Return a string representing the variable"""
@@ -746,7 +768,6 @@ cdef class CFAVariable:
         # fill in any other part that is not specified
         for s in range(key_l, len(shape)):
             slices[s] = [0, shape[s]-1, 1]
-
         # reset key_l as we have now filled the slices
         key_l = len(slices)
         # check the ranges of the slices
@@ -766,7 +787,6 @@ cdef class CFAVariable:
             # append the start / stop of the partition indices for each axis
             slice_range.append(np.arange(int(slices[s,0] / i_per_part[s]),
                                          int(slices[s,1] / i_per_part[s])+1))
-
         """Generate all possible combinations of the indices.
         indices should contain an iterator (list, array, etc) of iterators,
         where each of the sub-iterators contains the indices required for that
@@ -801,7 +821,7 @@ cdef class CFAVariable:
         for i in index_list:
             partition = self.getPartition(i)
             # create the default source slice, this is the shape of the subarray
-            ndims = len(partition.subarray.shape)
+            ndims = len(partition["subarray"]["shape"])
             source_slice = np.empty([ndims,3], np.int32)
             target_slice = np.empty([ndims,3], np.int32)
             # loop over all the slice dimensions - these should be equal between
@@ -809,11 +829,11 @@ cdef class CFAVariable:
             for d in range(0, ndims):
                 # create the target slice, this is the location of the partition
                 # in the master array - we will modify both of these
-                target_slice[d] = [partition.location[d,0],
-                                   partition.location[d,1],
+                target_slice[d] = [partition["location"][d,0],
+                                   partition["location"][d,1],
                                    1]
                 source_slice[d] = [0,
-                                   partition.subarray.shape[d],
+                                   partition["subarray"]["shape"][d],
                                    1]
                 # rejig the target and source slices based on the input slices
                 if slices[d,1] < target_slice[d,1]:
@@ -830,13 +850,11 @@ cdef class CFAVariable:
                     target_slice[d,0] = 0
 
             # append in order: filename, varname, source_slice, target_slice
-            return_list.append((partition.subarray.file,
-                                partition.subarray.ncvar,
+            return_list.append((partition["subarray"]["file"],
+                                partition["subarray"]["ncvar"],
                                 source_slice,
                                 target_slice))
-
         return return_list
-
 
     cpdef basestring getName(CFAVariable self):
         """Return the name of the variable."""
@@ -866,28 +884,25 @@ cdef class CFAVariable:
             # start with zeros
             self._shape = np.zeros(len(self.pmdimensions), np.int32)
             # loop over all the Partitions
-            for i in range(0, len(self.partitions)):
+            for p in np.nditer(self.partitions):
                 # just get the maximum of the partition locations
-                locat = self.partitions[i].getLocation()
+                locat = p["location"]
                 self._shape = np.maximum(self._shape, locat[:,1])
         return self._shape
 
-    cpdef CFAPartition getPartition(CFAVariable self, index):
+    cpdef object getPartition(CFAVariable self, index):
         """Get the partition at the index"""
         # get the list index from the partition look up table
         try:
-            li = self._pm_index_lut[tuple(index)]
+            # Get the partition, which is of CompoundType Partition_type
+            part = self.partitions[tuple(index)]
         except IndexError as ie:
             raise CFAPartitionIndexError(
                 "No partition with index: {} exists for the variable: {}".format(
                     index, self.var_name
                 )
             )
-        return self.partitions[li]
-
-    cpdef list getPartitions(CFAVariable self):
-        """Return all the partitions"""
-        return self.partitions
+        return part
 
     cpdef parse(CFAVariable self, dict cfa_metadata):
         """
@@ -905,8 +920,6 @@ cdef class CFAVariable:
         # not
         if not "cf_role" in cfa_metadata:
             self.cf_role = ""
-            self.partitions = []
-            self.cfa_dimensions = []
             return False
         else:
             self.cf_role = cfa_metadata["cf_role"]
@@ -943,16 +956,27 @@ cdef class CFAVariable:
                     self.base = cfa_json["base"]
                 if "pmshape" in cfa_json:
                     self.pmshape = np.array(cfa_json["pmshape"], dtype='i')
-                    self._pm_index_lut = np.empty(tuple(self.pmshape), dtype=np.int32)
+                    # create the partitions array
+                    self.partitions = np.empty(
+                                        self.pmshape, dtype=Partition_type
+                                      )
                 if "pmdimensions" in cfa_json:
                     self.pmdimensions = cfa_json["pmdimensions"]
                 for p in cfa_json["Partitions"]:
-                    cfa_part = CFAPartition()
-                    index = tuple(cfa_part.parse(p))
-                    self.partitions.append(cfa_part)
-                    # this creates a look up table between index and the list
-                    # element number
-                    self._pm_index_lut[index] = len(self.partitions) - 1
+                    # we require the index and location.  Allow KeyError
+                    # exceptions to be thrown if they are not found
+                    index = np.array(p["index"], 'i')
+                    # create the entry into the array
+                    self.partitions[tuple(index)] = (
+                        index,
+                        np.array(p["location"], 'i'),
+                        (
+                            p["subarray"]["ncvar"],
+                            p["subarray"]["file"],
+                            p["subarray"]["format"],
+                            np.array(p["subarray"]["shape"])
+                        )
+                    )
             elif md_key == "cfa_dimensions" or md_key == "cf_dimensions":
                 self.cfa_dimensions = cfa_metadata[md_key].split()
             elif md_key == "cf_role":
@@ -964,8 +988,16 @@ cdef class CFAVariable:
         """Return the a dictionary representation of the CFAVariable so it can be
            added to the metadata for the variable later.
            Returns:
-               dict: the JSON representation of the CFADimension
+               dict: the JSON representation of the CFAVariable
         """
+        # add the other (non-cfa) metadata
+        output_dump = {k:self.metadata[k] for k in self.metadata}
+        # only output partitions data if the variable has "cfa_variable" as its
+        # value for the "cf_role" attribute
+        if self.cf_role != "cfa_variable":
+            return output_dump
+
+        # below here is for cfa variables
         cfa_array_dict = {}
         if self.base != "":
             cfa_array_dict["base"] = self.base
@@ -973,16 +1005,30 @@ cdef class CFAVariable:
             cfa_array_dict["pmshape"] = self.pmshape.tolist()
         if self.pmdimensions != []:
             cfa_array_dict["pmdimensions"] = self.pmdimensions
-        cfa_array_dict["Partitions"] = [p.dump() for p in self.partitions]
-        output_dump = {"cf_role"        : self.cf_role,
-                       "cf_dimensions"  : " ".join(self.cfa_dimensions),
-                       "cfa_array"      : cfa_array_dict}
-        # add the other metadata
-        for k in self.metadata:
-            output_dump[k] = self.metadata[k]
-        # convert to json and return
-        return output_dump
 
+        # write out the partitions from the Partition_type CompoundType / dtype
+        partitions_list = []
+        for p in np.nditer(self.partitions):
+            # get the subarray and build the subarray JSON
+            s = p["subarray"]
+            subarray_dict = {"ncvar"  : numpy_string_to_python(s["ncvar"]),
+                             "file"   : numpy_string_to_python(s["file"]),
+                             "format" : numpy_string_to_python(s["format"]),
+                             "shape"  : s["shape"].tolist()
+                            }
+            # build the partition JSON and add the subarray
+            partition_dict = {"index"    : p["index"].tolist(),
+                              "location" : p["location"].tolist(),
+                              "subarray" : subarray_dict
+                             }
+            # add to list of partitions
+            partitions_list.append(partition_dict)
+        cfa_array_dict["Partitions"] = partitions_list
+
+        output_dump["cf_role"]       = self.cf_role,
+        output_dump["cf_dimensions"] = " ".join(self.cfa_dimensions),
+        output_dump["cfa_array"]     = cfa_array_dict
+        return output_dump
 
 cdef class CFADimension:
     """
@@ -1066,204 +1112,3 @@ cdef class CFADimension:
             N - None of the above axis (e.g. ensemble member)
         """
         return self.axis_type
-
-
-cdef class CFAPartition:
-    """
-       Class containing details of the partitions in a CFAVariable
-       +------------------------------------------------+
-       | CFAPartition                                   |
-       +------------------------------------------------+
-       | array<int>    index                            |
-       | array<int>    location                         |
-       | CFASubArray   subarray                         |
-       +------------------------------------------------+
-       | bool          parse(dict cfa_metadata)         |
-       | dict<mixed>   dump()                           |
-       | array<int>    getIndex()                       |
-       | array<int>    getLocation()                    |
-       | CFASubarray   getSubArray()                    |
-       +------------------------------------------------+
-    """
-
-    cdef public np.ndarray index
-    cdef public np.ndarray location
-    cdef public CFASubarray subarray
-
-    def __init__(CFAPartition self,
-                 np.ndarray index=np.array([]),
-                 np.ndarray location=np.array([]),
-                 CFASubarray subarray=None
-                ):
-        """Initialise the CFAPartition object"""
-        self.index = np.array(index)
-        self.location = np.array(location)
-        self.subarray = subarray
-
-    cpdef np.ndarray parse(CFAPartition self, dict part):
-        """Parse a partition definition from the metadata."""
-        # Check that the "subarray" item exists in the metadata
-        if not "subarray" in part:
-            raise CFASubarrayError(
-                      "subarray not defined in cfa_array:Partition metadata"
-            )
-        # Check index and subarray in JSON / metadata
-        if "index" in part:
-            self.index = np.array(part["index"], 'i')
-        if "location" in part:
-            self.location = np.array(part["location"], 'i')
-        cfa_subarray = CFASubarray()
-        cfa_subarray.parse(part["subarray"])
-        self.subarray = cfa_subarray
-        return self.index
-
-    cpdef CFASubarray getSubArray(CFAPartition self):
-        """Return the CFASubArray that belongs to this partition."""
-        return self.subarray
-
-    cpdef np.ndarray getIndex(CFAPartition self):
-        """Return the index for this partition."""
-        return self.index
-
-    cpdef np.ndarray getLocation(CFAPartition self):
-        """Return the location (in the master array) of this partition"""
-        return self.location
-
-    cpdef dict dump(CFAPartition self):
-        """Return the partition represented as a dictionary so it can be
-           converted to a JSON string later.
-           Returns:
-               dict: the JSON representation of the CFAPartition
-        """
-        return {"index"    : self.index.tolist(),
-                "location" : self.location.tolist(),
-                "subarray" : self.subarray.dump()}
-
-
-cdef class CFASubarray:
-    """
-        Class containing definition of a CFA Sub-array.  This is the bottom of
-        the data structure hierarchy.
-        +------------------------------------------------+
-        | CFASubarray                                    |
-        +------------------------------------------------+
-        | ncvar          string                          |
-        | file           string                          |
-        | format         string                          |
-        | shape          array<int>                      |
-        +------------------------------------------------+
-        | bool           parse(dict cfa_metadata)        |
-        | dict<mixed>    dump()                          |
-        | string         getncVar()                      |
-        | string         getFile()                       |
-        | string         getFormat()                     |
-        | array<int>     getShape()                      |
-        +------------------------------------------------+
-    """
-
-    cdef public basestring ncvar
-    cdef public basestring file
-    cdef public basestring format
-    cdef public np.ndarray shape
-
-    def __init__(CFASubarray self,
-                 basestring ncvar="",
-                 basestring file="",
-                 basestring format="",
-                 np.ndarray shape=np.array([])
-                ):
-        """Initialise the CFASubarray object"""
-        self.ncvar = basestring(ncvar)
-        self.file = basestring(file)
-        self.format = basestring(format)
-        self.shape = np.array(shape, dtype='i')
-
-    cpdef void parse(CFASubarray self, subarray):
-        """Parse the cfa_subarray member of the Partition metadata"""
-        # the only item which has to be present is shape
-        if not "shape" in subarray:
-            raise CFASubarrayError(
-                "shape not defined in Partition:subarray metadata"
-            )
-        if "ncvar" in subarray:
-            self.ncvar = subarray["ncvar"]
-        if "file" in subarray:
-            self.file = subarray["file"]
-        if "format" in subarray:
-            self.format = subarray["format"]
-        self.shape = np.array(subarray["shape"], 'i')
-
-    cpdef basestring getncVar(CFASubarray self):
-        """Return the name of the variable in the netCDF file containing the
-        subarray.
-
-        Returns:
-            string: the name of the netCDF variable
-        """
-        return self.ncvar
-
-    cpdef basestring getFile(CFASubarray self):
-        """Return the name of the netCDF file containing the subarray.
-
-        Returns:
-            string: the name of the netCDF file
-        """
-        return self.file
-
-    cpdef basestring getFormat(CFASubarray self):
-        """Return the format of the netCDF file containing the subarray.
-
-        Returns:
-            string: the format of the netCDF file
-        """
-        return self.format
-
-    cpdef np.ndarray getShape(CFASubarray self):
-        """Return the shape of the variable in the netCDF file containing the
-        subarray.
-
-        Returns:
-            array<int>: the shape of the netCDF variable
-        """
-        return self.shape
-
-    cpdef dict dump(CFASubarray self):
-        """Return a dictionary containing the JSON representation of the
-        CFASubarray
-
-        Returns:
-            dict: the JSON representation of the CFASubarray
-        """
-        output_dump = {"ncvar"  : self.ncvar,
-                       "file"   : self.file,
-                       "format" : self.format,
-                       "shape"  : self.shape.tolist()}
-        return output_dump
-
-
-cdef class CFASlice:
-    """
-       Class containing a read / write slice and conversion to Python slice.
-       This is a utility class.
-    """
-    cdef public int start
-    cdef public int stop
-    cdef public int step
-
-    def __init__(CFASlice self,
-                 int start=0,
-                 int stop=-1,
-                 int step=1
-                ):
-        self.start = start
-        self.stop = stop
-        self.step = step
-
-    cpdef slice to_pyslice(CFASlice self):
-        return slice(self.start, self.stop, self.step)
-
-    def __str__(CFASlice self):
-        return "[{}, {}, {}]".format(self.start, self.stop, self.step)
-
-    def __repr__(CFASlice self):
-        return "[{}, {}, {}]".format(self.start, self.stop, self.step)
