@@ -106,6 +106,8 @@ class s3Variable(netCDF4.Variable):
                     subarray_shape=subarray_shape,
                     max_subarray_size=max_subarray_size
                 )
+                # get teh netcdf dataset
+            ncd = parent.parent
 
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
@@ -134,9 +136,67 @@ class s3Variable(netCDF4.Variable):
                     subarray_shape=subarray_shape,
                     max_subarray_size=max_subarray_size
                 )
+                # later we will need to write the partition information into
+                # the partition object
+            # get the netcdf dataset
+            ncd = parent
         else:
             self._cfa_var = None
             nc_dimensions = dimensions
+            ncd = parent
+
+        # get the version of the cfa dataset
+        cfa_version = ncd._cfa_dataset.getCFAVersion()
+
+        if (hasattr(self, "_cfa_var") and self._cfa_var and
+            len(self._cfa_var.getDimensions()) != 0):
+            # get the partition matrix dimensions from the created variable
+            pm_dimensions = self._cfa_var.getPartitionMatrixDimensions()
+            pm_shape = self._cfa_var.getPartitionMatrixShape()
+            assert(len(pm_dimensions) == len(pm_shape))
+
+            if cfa_version == "0.5":
+                # create the custom datatypes in the netCDF file, if not already
+                # created
+                if not "Subarray" in ncd.cmptypes:
+                    subarray_type = ncd.createCompoundType(
+                        Subarray_type, "Subarray"
+                    )
+                else:
+                    subarray_type = ncd.cmptypes["Subarray"]
+                if not "Partition" in ncd.cmptypes:
+                    partition_type = ncd.createCompoundType(
+                        Partition_type, "Partition"
+                    )
+                else:
+                    partition_type = ncd.cmptypes["Partition"]
+
+                # write out the cfa data as a group, with the same name as the
+                # variable, prefixed with "cfa_"
+                cfa_metagroup_name = "cfa_" + name
+                # create this "metagroup"
+                cfa_metagroup = parent.createGroup(cfa_metagroup_name)
+
+                # create the Partition dimensions
+                for d in range(0, len(pm_dimensions)):
+                    part_dim = cfa_metagroup.createDimension(
+                                   pm_dimensions[d], pm_shape[d]
+                               )
+                # create the partition variable
+                partition_var = cfa_metagroup.createVariable(
+                    name, partition_type, tuple(pm_dimensions)
+                )
+                # write the partition information directly into the partitions
+                # variable in the netCDF file
+                self._cfa_var.writePartitions(partition_var)
+                partition_var[0,0,0,0]["index"] = np.array([1,2,3,4], 'i4')
+            elif (cfa_version == "0.4"):
+                # create a numpy array of the complex datatype
+                partitions = np.empty(pm_shape, dtype=Partition_type)
+                # write the parition information into this numpy array
+                self._cfa_var.writePartitions(partitions)
+            else:
+                raise CFAError("Unsupported CFA version {}.".format(cfa_version))
 
         # Initialise the base class
         super().__init__(
@@ -391,8 +451,7 @@ class s3Group(netCDF4.Group):
                                       subarray_shape=subarray_shape,
                                       max_subarray_size=max_subarray_size
                                    )
-        variable = self.variables[varname]
-        return variable
+        return self.variables[varname]
 
     def renameVariable(self, oldname, newname):
         """Rename the variable by overloading the base method."""
@@ -477,7 +536,7 @@ class s3Dataset(netCDF4.Dataset):
 
     def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                diskless=False, persist=False, keepweakref=False, memory=None,
-               **kwargs):
+               cfa_version=0.4, **kwargs):
         """The __init__ method can now be used with asyncio as all of the async
         functionally has been moved to the FileManager.
         Python reserved methods cannot be declared as `async`.
@@ -503,13 +562,15 @@ class s3Dataset(netCDF4.Dataset):
                 file_type = 'NETCDF4'
                 self._cfa_dataset = CFADataset(
                     name=filename,
-                    format='NETCDF4'
+                    format='NETCDF4',
+                    cfa_version=cfa_version
                 )
             elif format == 'CFA3':
                 file_type = 'NETCDF3_CLASSIC'
                 self._cfa_dataset = CFADataset(
                     name=filename,
-                    format='NETCDF3_CLASSIC'
+                    format='NETCDF3_CLASSIC',
+                    cfa_version=cfa_version
                 )
             else:
                 file_type = format
@@ -629,8 +690,7 @@ class s3Dataset(netCDF4.Dataset):
                                       subarray_shape=subarray_shape,
                                       max_subarray_size=max_subarray_size
                                    )
-        variable = self.variables[varname]
-        return variable
+        return self.variables[varname]
 
     def renameVariable(self, oldname, newname):
         """Rename the variable by overloading the base method."""
