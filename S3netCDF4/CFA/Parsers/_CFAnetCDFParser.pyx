@@ -56,7 +56,6 @@ class CFA_netCDFParser(CFA_Parser):
             CFADataset: The CFADataset object, populated with CFAGroups, which
             are in turn populated with CFADims and CFAVariables.
         """
-
         # check this is a CFA file
         if not self.is_file(nc_dataset):
             raise CFAError("Not a CFA file.")
@@ -71,9 +70,8 @@ class CFA_netCDFParser(CFA_Parser):
         if len(nc_dataset.groups) != 0:
             for grp_name in nc_dataset.groups:
                 nc_groups[grp_name] = nc_dataset.groups[grp_name]
-        # if there isn't then create a root group that is the Dataset
-        else:
-            nc_groups["root"] = nc_dataset
+        # add the root group, which is the dataset
+        nc_groups["root"] = nc_dataset
 
         # get the metadata from the dataset in a new dictionary
         nc_dataset_md = {a:nc_dataset.getncattr(a) for a in nc_dataset.ncattrs()}
@@ -86,7 +84,11 @@ class CFA_netCDFParser(CFA_Parser):
                       )
         # now loop over all the groups, and add a CFAGroup to each dataset, then
         # the variables and dimensions contained in that group
+        # recast the groups from netCDF._netCDF4.Group to S3netCDF4._s3netCDF4.s3Dataset
+        output_groups = {}
         for group_name in nc_groups:
+            # each group will recast its dimensions and variables from the
+            # netCDF4 variants to the S3netCDF4 variants
             nc_group = nc_groups[group_name]
             nc_group_md = {a:nc_group.getncattr(a) for a in nc_group.ncattrs()}
             cfa_group = cfa_dataset.createGroup(group_name, nc_group_md)
@@ -105,29 +107,28 @@ class CFA_netCDFParser(CFA_Parser):
             for nc_varname in nc_group.variables:
                 nc_var = nc_group.variables[nc_varname]
                 nc_var_md = {a:nc_var.getncattr(a) for a in nc_var.ncattrs()}
-                cfa_var = cfa_group.createVariable(
-                              var_name=nc_varname,
-                              nc_dtype=nc_var.dtype,
-                              metadata=nc_var_md
-                            )
-                if cfa_version == "0.4":
-                    # this parses from the 0.4 version - i.e all the metadata
-                    # is stored in the netCDF attributes
-                    cfa_var.parse(nc_var_md)
-                elif cfa_version == "0.5":
-                    # this parses from the 0.5 version - i.e. all the metadata
-                    # is stored in a variable in a group
-                    if "cf_role" in nc_var_md:
+                if "cf_role" in nc_var_md:
+                    cfa_var = cfa_group.createVariable(
+                                    var_name=nc_varname,
+                                    nc_dtype=nc_var.dtype,
+                                    metadata=nc_var_md
+                                )
+                    if cfa_version == "0.4":
+                        # this parses from the 0.4 version - i.e all the metadata
+                        # is stored in the netCDF attributes
+                        cfa_var.parse(nc_var_md)
+                    elif cfa_version == "0.5":
+                        # this parses from the 0.5 version - i.e. all the metadata
+                        # is stored in a variable in a group
                         cfa_metagroup_name = "cfa_" + nc_varname
                         cfa_metagroup = nc_group.groups[cfa_metagroup_name]
                         cfa_var.load(nc_varname, cfa_metagroup)
-                else:
-                    raise CFAError(
-                        "Unsupported CFA version ({}) in file.".format(
-                            cfa_version
+                    else:
+                        raise CFAError(
+                            "Unsupported CFA version ({}) in file.".format(
+                                cfa_version
+                            )
                         )
-                    )
-
         return cfa_dataset
 
     def write(self, cfa_dataset, nc_dataset):
@@ -156,21 +157,24 @@ class CFA_netCDFParser(CFA_Parser):
         netCDF4.Dataset.setncatts(nc_dataset, cfa_dataset.getMetadata())
         # get the groups
         for group in cfa_dataset.getGroups():
-            if (group == "root"):
-                nc_group = nc_dataset
-            else:
-                nc_group = nc_dataset.groups[group]
-
             # get the actual group
             cfa_group = cfa_dataset.getGroup(group)
+
+            if (group == "root"):
+                s3_group = nc_dataset
+                nc_group = nc_dataset
+            else:
+                s3_group = nc_dataset.groups[group]
+                nc_group = s3_group._nc_grp
             # set the metadata for the group
             netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
+
             # set the metadata for the variables
             for var in cfa_group.getVariables():
                 # get the actual cfa variable
                 cfa_var = cfa_group.getVariable(var)
                 # get the variable
-                nc_var = nc_group.variables[var]
+                nc_var = s3_group.variables[var]._nc_var
                 # get the variable metadata
                 var_md = dict(cfa_var.getMetadata())
                 # add the cfa metadata - if it is a cfa array
@@ -203,7 +207,7 @@ class CFA_netCDFParser(CFA_Parser):
                 cfa_dim = cfa_group.getDimension(dim_var)
                 # get the netCDF variable for this dimension
                 try:
-                    nc_dimvar = nc_group.variables[cfa_dim.getName()]
+                    nc_dimvar = s3_group.variables[cfa_dim.getName()]._nc_var
                     # copy the dimension metadata into the (dimension) variable
                     # metadata
                     dim_md = dict(cfa_dim.getMetadata())

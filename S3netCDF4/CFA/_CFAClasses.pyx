@@ -996,27 +996,6 @@ cdef class CFAVariable:
                     #   |   |   |   |
                     #   ----+---+---+
 
-
-        # for partition_def in partition_defs:
-        #     # create the name of the subarray file
-        #     filename = (base_filename +
-        #                  ".".join([str(i) for i in partition_def.index]) +
-        #                  ".nc"
-        #                )
-        #     subarray_shape = (partition_def.location[:,1] -
-        #                       partition_def.location[:,0])
-        #     # now create the partition with the subarray embedded
-        #     partitions[tuple(partition_def.index)] = (
-        #         partition_def.index,
-        #         partition_def.location,
-        #         (
-        #             var_name,
-        #             filename,
-        #             self.dataset.getFormat(),
-        #             subarray_shape
-        #         )
-        #     )
-
     cpdef parse(CFAVariable self, dict cfa_metadata):
         """
         Parse the metadata and create the required member data and subarrays.
