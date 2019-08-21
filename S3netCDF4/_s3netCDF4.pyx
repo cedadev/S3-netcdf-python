@@ -329,14 +329,15 @@ class s3Variable(object):
                 try:
                     return self._cfa_var.metadata[name]
                 except KeyError:
-                    return self._nc_var.__getattr__(name)
+                    return eval("self._nc_var.{}".format(name))
             elif hasattr(self, "_cfa_dim") and self._cfa_dim:
                 try:
                     return self._cfa_dim.metadata[name]
                 except KeyError:
-                    return self._nc_var.__getattr__(name)
+                    return eval("self._nc_var.{}".format(name))
             else:
-                return self._nc_var.__getattr__(name)
+                # use eval to return _nc_var function
+                return eval("self._nc_var.{}".format(name))
 
     def delncattr(self, name):
         """Override delncattr function to manipulate the metadata dictionary,
@@ -663,7 +664,7 @@ class s3Group(object):
         elif name == "variables":
             return self.dimensions
         else:
-            return self._nc_grp.__getattr__(name)
+            return eval("self._nc_grp.{}".format(name))
 
     def __setattr__(self, name, value):
         """Override the __setattr__ for the Group so as to assign its
