@@ -451,7 +451,7 @@ class s3FileObject(io.BufferedIOBase):
                     self._conn_obj.conn.put_object(
                         Bucket=self._bucket,
                         Key=self._path,
-                        Body=self._buffer[0].read()
+                        Body=self._buffer[0].read(size)
                     )
                 else:
                     # upload as multipart

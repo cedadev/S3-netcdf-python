@@ -107,7 +107,7 @@ def create_test_dataset_nc3(ncd, shape=[30,1,192,145]):
 # ds = s3Dataset(
 #     "/Users/dhk63261/Test/netCDF4_test_nc.nc", format="NETCDF4", mode='w'
 # )
-# res_deg = 1.0
+# res_deg = 1.25
 # create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
 # ds.close()
 
@@ -120,50 +120,48 @@ def create_test_dataset_nc3(ncd, shape=[30,1,192,145]):
 # ds.close()
 
 
-# print("CFA 0.4 file")
+# print("Write CFA 0.4 file")
 # ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF4_test_0.4.nc", format="CFA4", mode='w',
+#     "s3://cedadev-o/nrmassey/netCDF4_test_0.4.nc", format="CFA4", mode='w',
 #     cfa_version="0.4"
 # )
 # res_deg = 1.0
 # create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
 # ds.close()
 #
-# print("CFA 0.5 file")
-# ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF4_test_0.5.nc", format="CFA4", mode='w',
-#     cfa_version="0.5"
-# )
-# res_deg = 1.0
-# create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-# ds.close()
+
+print("Write CFA 0.4 file")
+ds = s3Dataset(
+#    "s3://cedadev-o/nrmassey/netCDF4_test_0.5.nc", format="CFA4", mode='w',
+    "/Users/dhk63261/Test/netCDF4_test_0.4.nc", format="CFA4", mode='w',
+    cfa_version="0.4"
+)
+res_deg = 1.0
+create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
+ds.close()
+
+print("Write CFA 0.5 file")
+ds = s3Dataset(
+#    "s3://cedadev-o/nrmassey/netCDF4_test_0.5.nc", format="CFA4", mode='w',
+    "/Users/dhk63261/Test/netCDF4_test_0.5.nc", format="CFA4", mode='w',
+    cfa_version="0.5"
+)
+res_deg = 1.0
+create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
+print(ds.groups["test_group"].variables["tmp"][0,0,0:10,20:30])
+ds.close()
 
 # very high-res dataset
 # hi_res_deg=0.0125
 # create_test_dataset(ds, shape=[365*4, 200, 180/hi_res_deg, 360/hi_res_deg])
 # ds.close()
 
+print("Read CFA 0.5 file")
 dr = s3Dataset(
-    "/Users/dhk63261/Test/netCDF4_test_0.5.nc", mode='r'
+    "/Users/dhk63261/Test/netCDF4_test_0.5.nc", mode='r',
 )
 #print(dr.variables, dr.groups, dr.dimensions)
 x = dr.groups["test_group"]
 tmp = x.variables["tmp"]
-print(type(tmp))
-print(tmp[0:1,0,0,0])
+print(tmp[0,0,90:180,:])
 # v = dr.variables["scl"]
-
-dr = s3Dataset(
-    "/Users/dhk63261/Archive/weather_at_home/data/1314Floods/a7tzga.pdl3dec.nc",
-    mode='r'
-)
-print(type(dr.variables["field8_2"]))
-#
-# cfa_var = dr._cfa_dataset.getGroup("test_group").getVariable("tmp")
-# x = (cfa_var[120:260,0:20,0:20,0:20])
-# grp = dr.groups["test_group"]
-# print(type(dr), type(grp))
-# scl = dr.variables["scl"]
-# tmp_var = grp.variables["tmp"]
-# #print(x)
-# dr.close()

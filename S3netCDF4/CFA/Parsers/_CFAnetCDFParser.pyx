@@ -131,7 +131,7 @@ class CFA_netCDFParser(CFA_Parser):
                         )
         return cfa_dataset
 
-    def write(self, cfa_dataset, nc_dataset):
+    def write(self, cfa_dataset, s3_dataset):
         """Write the _CFAClasses hierarchy to an already open netcdf_dataset
         (opened with 'w' write flag).
 
@@ -147,7 +147,8 @@ class CFA_netCDFParser(CFA_Parser):
         dataset_metadata = cfa_dataset.getMetadata()
         cfa_version = cfa_dataset.getCFAVersion()
         cfa_conventions = self.CFA_conventions + "-{}".format(cfa_version)
-
+        # get the underlying netCDF4 dataset
+        nc_dataset = s3_dataset._nc_dataset
         if "Conventions" in dataset_metadata:
             dataset_metadata["Conventions"] += " " + cfa_conventions
         else:
@@ -159,7 +160,6 @@ class CFA_netCDFParser(CFA_Parser):
         for group in cfa_dataset.getGroups():
             # get the actual group
             cfa_group = cfa_dataset.getGroup(group)
-
             if (group == "root"):
                 s3_group = nc_dataset
                 nc_group = nc_dataset
@@ -177,7 +177,7 @@ class CFA_netCDFParser(CFA_Parser):
                 nc_var = s3_group.variables[var]._nc_var
                 # get the variable metadata
                 var_md = dict(cfa_var.getMetadata())
-                # add the cfa metadata - if it is a cfa array
+                # add the cfa metadata - if it is a cfa variable
                 if cfa_var.getRole() != "":
                     var_md['cf_role'] = cfa_var.getRole()
                     var_md['cfa_dimensions'] = " ".join(cfa_var.getDimensions())

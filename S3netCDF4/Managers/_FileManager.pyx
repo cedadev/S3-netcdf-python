@@ -177,6 +177,8 @@ class FileManager(object):
         except:
             _fo._remote_system = False
 
+        # debug test - force remote_system
+        #_fo._remote_system = True
         try:
             # This all looks very bizarre - but it due to us using Cython,
             # rather than CPython and asyncio coroutines.

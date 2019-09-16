@@ -20,17 +20,13 @@ from S3netCDF4.CFA._CFASplitter import CFASplitter
    as
 """
 
-# create a Subarray datatype
-Subarray_type = np.dtype([("ncvar", "S256"),
-                          ("file", "S2048"),
-                          ("format", "S16"),
-                          ("shape", "i4", (4, ))
-                        ])
-
 # create a partition datatype
 Partition_type = np.dtype([("index", "i4", (4, )),
                            ("location", "i4", (4, 2)),
-                           ("subarray", Subarray_type)
+                           ("ncvar", ("S", 256)),
+                           ("file", ("S", 2048)),
+                           ("format", ("S", 16)),
+                           ("shape", "i4", (4, ))
                          ])
 
 def numpy_string_to_python(np_string):
@@ -756,7 +752,7 @@ cdef class CFAVariable:
                 )
         # fill in any other part that is not specified
         for s in range(key_l, len(shape)):
-            slices[s] = [0, shape[s]-1, 1]
+            slices[s] = [0, shape[s], 1]
         # reset key_l as we have now filled the slices
         key_l = len(slices)
         # check the ranges of the slices
@@ -802,7 +798,6 @@ cdef class CFAVariable:
                     # add to the new list
                     new_index_list.append(z)
             index_list = copy(new_index_list)
-
         # now get the partition filenames, with the variable and the source
         # and target slices necessary to copy a slice from a subarray to a
         # master array
@@ -810,7 +805,7 @@ cdef class CFAVariable:
         for i in index_list:
             partition = self.getPartition(i)
             # create the default source slice, this is the shape of the subarray
-            ndims = len(partition["subarray"]["shape"])
+            ndims = len(partition["shape"])
             source_slice = np.empty([ndims,3], np.int32)
             target_slice = np.empty([ndims,3], np.int32)
             # loop over all the slice dimensions - these should be equal between
@@ -822,7 +817,7 @@ cdef class CFAVariable:
                                    partition["location"][d,1],
                                    1]
                 source_slice[d] = [0,
-                                   partition["subarray"]["shape"][d],
+                                   partition["shape"][d],
                                    1]
                 # rejig the target and source slices based on the input slices
                 if slices[d,1] < target_slice[d,1]:
@@ -839,8 +834,8 @@ cdef class CFAVariable:
                     target_slice[d,0] = 0
 
             # append in order: filename, varname, source_slice, target_slice
-            return_list.append((partition["subarray"]["file"],
-                                partition["subarray"]["ncvar"],
+            return_list.append((partition["file"],
+                                partition["ncvar"],
                                 source_slice,
                                 target_slice))
         return return_list
@@ -877,16 +872,6 @@ cdef class CFAVariable:
             self._shape[:] = [self.getGroup().getDimension(d).getLen()
                               for d in self.getDimensions()]
         return self._shape
-
-        #     cdef int i
-        #     # start with zeros
-        #     self._shape = np.zeros(len(self.pmdimensions), np.int32)
-        #     # loop over all the Partitions
-        #     for p in np.nditer(self.partitions):
-        #         # just get the maximum of the partition locations
-        #         locat = p["location"]
-        #         self._shape = np.maximum(self._shape, locat[:,1])
-        # return self._shape
 
     cpdef np.ndarray getPartitionMatrixShape(CFAVariable self):
         """Get the partition matrix shape."""
@@ -957,11 +942,13 @@ cdef class CFAVariable:
             # calculate the start and end locations
             location[:,0] = (0.5+c_pindex[:] *
                             subarray_shape).astype('i')
+            # -1 here as CFA expects indices to be *inclusive*
             location[:,1] = (0.5+c_pindex[:] *
                              subarray_shape +
-                             subarray_shape).astype('i')
+                             subarray_shape -1).astype('i')
             # get the integer subarray shape for this actual partition
-            actual_subarray_shape = (location[:,1] - location[:,0])
+            # (add the 1 back on that was subtracted above)
+            actual_subarray_shape = (location[:,1] - location[:,0]+1)
 
             # create the name of the subarray file with the numbering system
             filename = (base_filename +
@@ -974,10 +961,10 @@ cdef class CFAVariable:
             partition = np.empty(1, dtype=Partition_type)
             partition["index"][:] = index[:]
             partition["location"][:] = location
-            partition["subarray"]["file"][:] = filename
-            partition["subarray"]["ncvar"][:] = self.var_name
-            partition["subarray"]["format"][:] = self.getGroup().getDataset().getFormat()
-            partition["subarray"]["shape"][:] = actual_subarray_shape[:]
+            partition["file"][:] = filename
+            partition["ncvar"][:] = self.var_name
+            partition["format"][:] = self.getGroup().getDataset().getFormat()
+            partition["shape"][:] = actual_subarray_shape[:]
             self.partitions[tuple(index)] = partition
 
             # increase current iterated partition index
@@ -1065,10 +1052,10 @@ cdef class CFAVariable:
                         index,
                         np.array(p["location"], 'i'),
                         (
-                            p["subarray"]["ncvar"],
-                            p["subarray"]["file"],
-                            p["subarray"]["format"],
-                            np.array(p["subarray"]["shape"])
+                            p["ncvar"],
+                            p["file"],
+                            p["format"],
+                            np.array(p["shape"])
                         )
                     )
             elif md_key == "cfa_dimensions" or md_key == "cf_dimensions":
@@ -1103,17 +1090,13 @@ cdef class CFAVariable:
         # write out the partitions from the Partition_type CompoundType / dtype
         partitions_list = []
         for p in np.nditer(self.partitions):
-            # get the subarray and build the subarray JSON
-            s = p["subarray"]
-            subarray_dict = {"ncvar"  : numpy_string_to_python(s["ncvar"]),
-                             "file"   : numpy_string_to_python(s["file"]),
-                             "format" : numpy_string_to_python(s["format"]),
-                             "shape"  : s["shape"].tolist()
-                            }
             # build the partition JSON and add the subarray
             partition_dict = {"index"    : p["index"].tolist(),
                               "location" : p["location"].tolist(),
-                              "subarray" : subarray_dict
+                              "ncvar"  : numpy_string_to_python(p["ncvar"]),
+                              "file"   : numpy_string_to_python(p["file"]),
+                              "format" : numpy_string_to_python(p["format"]),
+                              "shape"  : p["shape"].tolist()
                              }
             # add to list of partitions
             partitions_list.append(partition_dict)

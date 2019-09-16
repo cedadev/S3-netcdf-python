@@ -299,8 +299,8 @@ class s3aioFileObject(object):
     async def _multipart_upload_from_buffer(self):
         """Do a multipart upload from the buffer.
         There are three cases:
-            1.  The size is exactly the same size as the MAXIMUM_UPLOAD_SIZE
-            2.  The size is greater than the MAXIMUM_UPLOAD_SIZE
+            1.  The size is exactly the same size as the MAXIMUM_PART_SIZE
+            2.  The size is greater than the MAXIMUM_PART_SIZE
             3.  The size is multiple times greater than the MAX_UPLOAD_SIZE and
                 requires spolitting into smaller chunks
         """
@@ -532,7 +532,7 @@ class s3aioFileObject(object):
                     await self._conn_obj.conn.put_object(
                         Bucket=self._bucket,
                         Key=self._path,
-                        Body=self._buffer[0].read()
+                        Body=self._buffer[0].read(size)
                     )
                 else:
                     # upload as multipart

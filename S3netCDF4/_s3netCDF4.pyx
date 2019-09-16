@@ -11,7 +11,9 @@ Updated: 13/05/2019
 
 import numpy as np
 
-# This module inherits from the standard UniData netCDF4 implementation
+# This module Duplicates classes and functions from the standard UniData netCDF4
+# implementation and overrides their functionality so as it enable S3 and CFA
+# functionality
 # import as netCDF4 to avoid confusion with the S3netCDF4 module
 import netCDF4._netCDF4 as netCDF4
 
@@ -23,7 +25,7 @@ import time
 
 class s3Dimension(object):
     """
-       Inherit the UniData netCDF4 Dimension class and override some key member
+       Duplicate the UniData netCDF4 Dimension class and override some key member
        functions to allow the adding dimensions to netCDF files and CFA netCDF
        files.
     """
@@ -62,11 +64,6 @@ class s3Dimension(object):
         # variable when the dimensions variable for this dimension is created
         self._nc_dim = netCDF4.Dimension(nc_object, name, size, **kwargs)
 
-    def load(self, cfa_dim, nc_dim):
-        """Load the variables in"""
-        self._cfa_dim = cfa_dim
-        self._nc_dim = nc_dim
-
     def __getattr__(self, name):
         """Override the __getattr__ for the dimension and return the
             corresponding attribute from the _nc_dim object."""
@@ -101,7 +98,7 @@ class s3Dimension(object):
 
 class s3Variable(object):
     """
-       Inherit the UniData netCDF4 Variable class and override some key member
+       Duplicate the UniData netCDF4 Variable class and override some key member
        functions to allow the adding variables to netCDF files and CFA netCDF
        files.
     """
@@ -214,12 +211,6 @@ class s3Variable(object):
             if cfa_version == "0.5":
                 # create the custom datatypes in the netCDF file, if not already
                 # created
-                if not "Subarray" in ncd.cmptypes:
-                    subarray_type = ncd.createCompoundType(
-                        Subarray_type, "Subarray"
-                    )
-                else:
-                    subarray_type = ncd.cmptypes["Subarray"]
                 if not "Partition" in ncd.cmptypes:
                     partition_type = ncd.createCompoundType(
                         Partition_type, "Partition"
@@ -238,9 +229,10 @@ class s3Variable(object):
                     part_dim = cfa_metagroup.createDimension(
                                    pm_dimensions[d], pm_shape[d]
                                )
-                # create the partition variable
+                # create the partition variable, with compression to compress
+                # empty parts of strings for filename and variable
                 partition_var = cfa_metagroup.createVariable(
-                    name, partition_type, tuple(pm_dimensions)
+                    name, partition_type, tuple(pm_dimensions),
                 )
                 # write the partition information directly into the partitions
                 # variable in the netCDF file
@@ -270,14 +262,6 @@ class s3Variable(object):
             fill_value=fill_value,
             chunk_cache=chunk_cache
         )
-
-    def load(self, cfa_var, cfa_dim, nc_var, parent):
-        """Just initialise the class, any loading of the variables will be done
-        by the parser, or the CreateVariable member of s3Group."""
-        self._cfa_var = cfa_var
-        self._cfa_dim = cfa_dim
-        self._nc_var = nc_var
-        self.parent = parent
 
     def _setatt(self, cfa_object, name, value):
         if not (name in netCDF4._private_atts or name in s3Variable._private_atts):
@@ -461,7 +445,7 @@ class s3Variable(object):
 
 class s3Group(object):
     """
-       Inherit the UniData netCDF4 Group class and override some key member
+       Duplicate the UniData netCDF4 Group class and override some key member
        functions to allow the adding groups to netCDF files and CFA netCDF
        files.
     """
@@ -480,19 +464,13 @@ class s3Group(object):
 
     def create(self, parent, name, **kwargs):
         """Initialise the group.  This adds the CFAGroup structure to the
-        group as well as initialising the superclass."""
+        group as well as initialising the composed class."""
         self._nc_grp = netCDF4.Group(parent, name, **kwargs)
         # check that this is a CFA format file
         if hasattr(parent, "_cfa_dataset") and parent._cfa_dataset:
             self._cfa_grp = parent._cfa_dataset.createGroup(name)
         else:
             self._cfa_grp = None
-        self.parent = parent
-
-    def load(self, nc_grp=None, cfa_grp=None, parent=None):
-        """Assign the variables in the parameters to the member variables."""
-        self._nc_grp = nc_grp
-        self._cfa_grp = cfa_grp
         self.parent = parent
 
     def createDimension(self, dimname, size=None,
@@ -639,7 +617,6 @@ class s3Group(object):
         if self._s3_dimensions == None:
             self._s3_dimensions = {}
             for dim in self._nc_grp.dimensions:
-                print(dim)
                 nc_dim = self._nc_grp.dimensions[dim]
                 if dim in self._cfa_grp.getDimensions():
                     cfa_dim = self._cfa_grp.getDimension(dim)
@@ -662,7 +639,7 @@ class s3Group(object):
         elif name == "dimensions":
             return self.dimensions
         elif name == "variables":
-            return self.dimensions
+            return self.variables
         else:
             return eval("self._nc_grp.{}".format(name))
 
@@ -674,15 +651,16 @@ class s3Group(object):
         else:
             self._nc_grp.__setattr__(name, value)
 
-class s3Dataset(netCDF4.Dataset):
+class s3Dataset(object):
     """
-       Inherit the UniData netCDF4 Dataset class and override some key member
+       Duplicate the UniData netCDF4 Dataset class and override some key member
        functions to allow the read and write of netCDF files and CFA formatted
        netCDF files to an object store accessed via an AWS S3 HTTP API.
     """
 
     _private_atts = ['file_object', '_file_object', '_file_manager', '_mode',
-                     '_cfa_grp', '_cfa_dataset',
+                     '_cfa_dataset', '_nc_dataset',
+                     '_s3_groups', '_s3_dimensions', '_s3_variables'
                     ]
 
     @property
@@ -690,8 +668,8 @@ class s3Dataset(netCDF4.Dataset):
         return self._file_object
 
     def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
-               diskless=False, persist=False, keepweakref=False, memory=None,
-               cfa_version="0.4", **kwargs):
+                 diskless=False, persist=False, keepweakref=False, memory=None,
+                 cfa_version="0.4", **kwargs):
         """The __init__ method can now be used with asyncio as all of the async
         functionally has been moved to the FileManager.
         Python reserved methods cannot be declared as `async`.
@@ -708,6 +686,13 @@ class s3Dataset(netCDF4.Dataset):
         # create the file object, this controls access to the various
         # file backends that are supported
         self._file_object = self._file_manager.open(filename, mode=fh_mode)
+
+        # set these to be None, they will be built and cached when a call
+        # is made to the .groups, .variables or .dimensions functions
+        self._s3_groups = None
+        self._s3_dimensions = None
+        self._s3_variables = None
+
         # set the file up for write mode
         if mode == 'w':
             # check the format for writing - allow CFA4 in arguments and default
@@ -731,19 +716,18 @@ class s3Dataset(netCDF4.Dataset):
                 self._cfa_dataset = None
 
             if self.file_object.remote_system:
-                # call the base constructor
-                super().__init__(
+                # call the constructor of the netCDF4.Dataset class
+                self._nc_dataset = netCDF4.Dataset(
                     "inmemory.nc", mode=mode, clobber=clobber,
                     format=file_type, diskless=True, persist=persist,
-                    keepweakref=keepweakref, memory=1, **kwargs
+                    keepweakref=keepweakref, memory=0, **kwargs
                 )
             else:
-                super().__init__(
+                self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
-
         # handle read-only mode
         elif mode == 'r':
             # get the header data
@@ -757,13 +741,13 @@ class s3Dataset(netCDF4.Dataset):
                 # stream into memory
                 nc_bytes = self.file_object.read()
                 # call the base constructor
-                super().__init__(
+                self._nc_dataset = netCDF4.Dataset(
                     "inmemory.nc", mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, memory=nc_bytes, **kwargs
                 )
             else:
-                super().__init__(
+                self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
@@ -772,11 +756,6 @@ class s3Dataset(netCDF4.Dataset):
             parser = CFA_netCDFParser()
             if parser.is_file(self):
                 self._cfa_dataset = parser.read(self)
-                # set these to be null, they will be built and cached when a call
-                # is made to the .groups, .variables or .dimensions functions
-                self._s3_groups = None
-                self._s3_dimensions = None
-                self._s3_variables = None
         else:
             # no other modes are supported
             raise APIException("Mode " + mode + " not supported.")
@@ -790,7 +769,7 @@ class s3Dataset(netCDF4.Dataset):
             parser = CFA_netCDFParser()
             parser.write(self._cfa_dataset, self)
         # call the base class close method
-        nc_bytes = super().close()
+        nc_bytes = self._nc_dataset.close()
         self.file_object.close(nc_bytes)
 
     def createDimension(self, dimname, size=None,
@@ -801,14 +780,14 @@ class s3Dataset(netCDF4.Dataset):
             raise APIException(
                 "Dimension name: {} already exists.".format(dimname)
             )
-        self.dimensions[dimname] = s3Dimension()
-        self.dimensions[dimname].load(
+        self._nc_dataset.dimensions[dimname] = s3Dimension()
+        self._nc_dataset.dimensions[dimname].create(
                                        self, dimname,
                                        size=size,
                                        axis_type=axis_type,
                                        metadata=metadata
                                    )
-        return self.dimensions[dimname]
+        return self._nc_dataset.dimensions[dimname]
 
     def renameDimension(self, oldname, newname):
         """Rename the dimension by overloading the base method."""
@@ -820,7 +799,7 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             cfa_root_group = self._cfa_dataset.getGroup("root")
             cfa_root_group.renameDimension(oldname, newname)
-        super().renameDimension(oldname, newname)
+        self._nc_dataset.renameDimension(oldname, newname)
 
     def createVariable(self, varname, datatype, dimensions=(), zlib=False,
                        complevel=4, shuffle=True, fletcher32=False,
@@ -833,8 +812,8 @@ class s3Dataset(netCDF4.Dataset):
         """
         # all variables belong to a group - if a group has not been specified
         # then they belong to the "/root" group
-        self.variables[varname] = s3Variable()
-        self.variables[varname].create(
+        self._nc_dataset.variables[varname] = s3Variable()
+        self._nc_dataset.variables[varname].create(
                                       self, varname, datatype,
                                       dimensions=dimensions,
                                       zlib=zlib,
@@ -850,7 +829,7 @@ class s3Dataset(netCDF4.Dataset):
                                       subarray_shape=subarray_shape,
                                       max_subarray_size=max_subarray_size
                                    )
-        return self.variables[varname]
+        return self._nc_dataset.variables[varname]
 
     def renameVariable(self, oldname, newname):
         """Rename the variable by overloading the base method."""
@@ -858,21 +837,21 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             cfa_root_group = self._cfa_dataset.getGroup("root")
             cfa_root_group.renameVariable(oldname, newname)
-        super().renameVariable(oldname, newname)
+        self._nc_dataset.renameVariable(oldname, newname)
 
     def createGroup(self, groupname):
         """Create a group.  If this file is a CFA file then create the CFAGroup
         as well."""
-        self.groups[groupname] = s3Group()
-        self.groups[groupname].create(self, groupname)
-        return self.groups[groupname]
+        self._nc_dataset.groups[groupname] = s3Group()
+        self._nc_dataset.groups[groupname].create(self, groupname)
+        return self._nc_dataset.groups[groupname]
 
     def renameGroup(self, oldname, newname):
         """Rename a group.  If this file is a CFA file then rename the CFAGroup
         as well."""
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             self._cfa_dataset.renameGroup(oldname, newname)
-        super().renameGroup(oldname, newname)
+        self._nc_dataset.renameGroup(oldname, newname)
 
     def __getattr__(self, name):
         """Override the __getattr__ for the Dataset so as to return its
@@ -881,8 +860,10 @@ class s3Dataset(netCDF4.Dataset):
         # level and not in the netCDF file.
         if name in s3Dataset._private_atts:
             return self.__dict__[name]
+        elif name == "groups":
+            return self.groups
         else:
-            return super().__getattr__(name)
+            return eval("self._nc_dataset.{}".format(name))
 
     def __setattr__(self, name, value):
         """Override the __setattr__ for the Dataset so as to assign its
@@ -890,7 +871,7 @@ class s3Dataset(netCDF4.Dataset):
         if name in s3Dataset._private_atts:
             self.__dict__[name] = value
         else:
-            super().__setattr__(name, value)
+            self._nc_dataset.__setattr__(name, value)
 
     @property
     def groups(self):
@@ -899,8 +880,8 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             if self._s3_groups == None:
                 self._s3_groups = {}
-                for grp in super().groups:
-                    nc_grp = super().groups[grp]
+                for grp in self._nc_dataset.groups:
+                    nc_grp = self._nc_dataset.groups[grp]
                     if grp in self._cfa_dataset.getGroups():
                         cfa_grp = self._cfa_dataset.getGroup(grp)
                         # create the s3group with links to the cfa group, and nc_grp
@@ -914,7 +895,7 @@ class s3Dataset(netCDF4.Dataset):
 
             return self._s3_groups
         else:
-            return super().groups
+            return self._nc_dataset.groups
 
     @property
     def variables(self):
@@ -925,8 +906,8 @@ class s3Dataset(netCDF4.Dataset):
                 # get the root group
                 cfa_group = self._cfa_dataset.getGroup("root")
                 self._s3_variables = {}
-                for var in super().variables:
-                    nc_var = super().variables[var]
+                for var in self._nc_dataset.variables:
+                    nc_var = self._nc_dataset.variables[var]
                     if var in cfa_group.getVariables():
                         cfa_var = cfa_group.getVariable(var)
                         # create the s3group with links to the cfa group, and nc_grp
@@ -939,7 +920,7 @@ class s3Dataset(netCDF4.Dataset):
 
             return self._s3_variables
         else:
-            return super().variables
+            return self._nc_dataset.variables
 
     @property
     def dimensions(self):
@@ -950,8 +931,8 @@ class s3Dataset(netCDF4.Dataset):
                 # get the root group
                 cfa_group = self._cfa_dataset.getGroup("root")
                 self._s3_dimensions = {}
-                for dim in super().dimensions:
-                    nc_dim = super().dimensions[dim]
+                for dim in self._nc_dataset.dimensions:
+                    nc_dim = self._nc_dataset.dimensions[dim]
                     if dim in cfa_group.getDimensions():
                         cfa_dim = cfa_group.getDimension(dim)
                         # create the s3group with links to the cfa dimension,
@@ -965,7 +946,7 @@ class s3Dataset(netCDF4.Dataset):
 
             return self._s3_dimensions
         else:
-            return super().dimensions
+            return self._nc_dataset.dimensions
 
     def _interpret_netCDF_filetype(data):
         """
@@ -1023,7 +1004,7 @@ class s3Dataset(netCDF4.Dataset):
                 raise APIException(
                     "Attribute {} not found in dataset".format(name))
         else:
-            super().delncattr(name, value)
+            self._nc_dataset.delncattr(name, value)
 
     def getncattr(self, name):
         """Override getncattr function to manipulate the metadata dictionary,
@@ -1033,9 +1014,9 @@ class s3Dataset(netCDF4.Dataset):
             try:
                 return self._cfa_dataset.metadata[name]
             except KeyError:
-                return super().getncattr(name)
+                return self._nc_dataset.getncattr(name)
         else:
-            return super().getncattr(name)
+            return self._nc_dataset.getncattr(name)
 
     def ncattrs(self):
         """Override ncattrs function to manipulate the metadata dictionary,
@@ -1044,7 +1025,7 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             return self._cfa_dataset.metadata.keys()
         else:
-            return super().ncattrs()
+            return self._nc_dataset.ncattrs()
 
     def setncattr(self, name, value):
         """Override setncattr function to manipulate the metadata dictionary,
@@ -1053,7 +1034,7 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             self._cfa_dataset.metadata[name] = value
         else:
-            super().setncattr(name, value)
+            self._nc_dataset.setncattr(name, value)
 
     def setncattr_string(self, name, value):
         """Override setncattr_string function to manipulate the metadata
@@ -1062,7 +1043,7 @@ class s3Dataset(netCDF4.Dataset):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
             self._cfa_dataset.metadata[name] = value
         else:
-            super().setncattr_string(name, value)
+            self._nc_dataset.setncattr_string(name, value)
 
     def setncatts(self, attdict):
         """Override setncattrs function to manipulate the metadata
@@ -1072,4 +1053,4 @@ class s3Dataset(netCDF4.Dataset):
             for k in attdict:
                 self._cfa_dataset.metadata[k] = attdict[k]
         else:
-            super().setncatts(attdict)
+            self._nc_dataset.setncatts(attdict)
