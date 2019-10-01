@@ -13,7 +13,6 @@ __authors__ = "Neil Massey and Matthew Jones"
 
 import numpy as np
 cimport numpy as np
-from collections import namedtuple
 
 cdef class CFASplitter:
     """

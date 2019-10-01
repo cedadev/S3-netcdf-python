@@ -10,6 +10,7 @@ cimport numpy as np
 from copy import copy
 import json
 import os.path
+from collections import namedtuple
 
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFASplitter import CFASplitter
@@ -17,7 +18,9 @@ from S3netCDF4.CFA._CFASplitter import CFASplitter
 """
    These are the custom CompoundTypes for the Subarray and Partition in the
    netCDF4 implementation of CFA-netCDF.  They are written into the netCDF file
-   as
+   as an array, rather than writing directly into the metadata.
+   This enables slicing of the array rather than loading the entire metadata
+   into memory at once,
 """
 
 # create a partition datatype
@@ -752,7 +755,7 @@ cdef class CFAVariable:
                 )
         # fill in any other part that is not specified
         for s in range(key_l, len(shape)):
-            slices[s] = [0, shape[s], 1]
+            slices[s] = [0, shape[s]-1, 1]
         # reset key_l as we have now filled the slices
         key_l = len(slices)
         # check the ranges of the slices
@@ -802,6 +805,10 @@ cdef class CFAVariable:
         # and target slices necessary to copy a slice from a subarray to a
         # master array
         return_list = []
+        return_type = namedtuple(
+                        'return_type',
+                        'file ncvar shape source target'
+                      )
         for i in index_list:
             partition = self.getPartition(i)
             # create the default source slice, this is the shape of the subarray
@@ -834,10 +841,12 @@ cdef class CFAVariable:
                     target_slice[d,0] = 0
 
             # append in order: filename, varname, source_slice, target_slice
-            return_list.append((partition["file"],
-                                partition["ncvar"],
-                                source_slice,
-                                target_slice))
+            return_list.append(return_type(file   = partition["file"],
+                                           ncvar  = partition["ncvar"],
+                                           shape  = partition["shape"],
+                                           source = source_slice,
+                                           target = target_slice)
+                              )
         return return_list
 
     cpdef CFAGroup getGroup(CFAVariable self):
@@ -910,6 +919,8 @@ cdef class CFAVariable:
         #
         # create the base filename
         file_path = self.getGroup().getDataset().getName()
+        # trim the ".nc" off the end
+        file_path = file_path.replace(".nc", "")
         # get just the filename, stripped of ".nc"
         file_name = os.path.basename(file_path).replace(".nc", "")
         # construct the base path of the subarray filenames

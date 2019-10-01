@@ -11,7 +11,6 @@ o. When connections are added they are locked and they can later be released so
    that they can be reused without having to re-establish the connection.
 o. When a connection is closed it is removed from the pool.
 """
-from collections import namedtuple
 from S3netCDF4._Exceptions import APIException
 
 class ConnectionObject(object):

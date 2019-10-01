@@ -21,7 +21,6 @@ from _Exceptions import *
 from S3netCDF4.CFA._CFAClasses import *
 from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
 from S3netCDF4.Managers._FileManager import FileManager
-import time
 
 class s3Dimension(object):
     """
@@ -104,7 +103,7 @@ class s3Variable(object):
     """
     # private attributes for just the s3Variable
     _private_atts = [
-        "_cfa_var", "_cfa_dim", "_nc_var"
+        "_cfa_var", "_cfa_dim", "_nc_var", "_file_manager"
     ]
 
     def __init__(self, cfa_var=None, cfa_dim=None, nc_var=None):
@@ -113,6 +112,8 @@ class s3Variable(object):
         self._cfa_var = cfa_var
         self._cfa_dim = cfa_dim
         self._nc_var = nc_var
+        # need a file manager for the sub array files
+        self._file_manager = FileManager()
 
     def create(self, parent, name, datatype, dimensions=(), zlib=False,
             complevel=4, shuffle=True, fletcher32=False, contiguous=False,
@@ -424,6 +425,25 @@ class s3Variable(object):
             # get the above details from the CFA variable, details are returned as:
             # (filename, varname, source_slice, target_slice)
             index_list = self._cfa_var.__getitem__(elem)
+            for i in index_list:
+                size = np.prod(i.shape)
+                # check with the filemanager what state the file is in, and
+                # whether we should open it
+                request_object = self._file_manager.request_file(
+                                    i.file, size, mode="w"
+                                )
+                # create a netCDF file in memory if it has not been created
+                # previously
+                if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
+                    nc_subarray_file = netCDF4.Dataset(
+                        
+                    )
+                # if it has been created before then use the previously created
+                # file
+                elif request_object.open_state == OpeFileRecord.OPEN_EXISTS_IN_MEMORY:
+
+
+
         else:
             self._nc_var.__setitem__(elem, data)
 
@@ -439,9 +459,16 @@ class s3Variable(object):
             # get the above details from the CFA variable, details are returned as:
             # (filename, varname, source_slice, target_slice)
             index_list = self._cfa_var.__getitem__(elem)
+            for i in index_list:
+                # when the file is streamed into memory, the whole file is read
+                # in - i.e. it is opened in memory by netCDF.
+                # We need to reserve the full amount of space
+                size = np.prod(i.shape)
+                request_object = self._file_manager.request_file(
+                                    i.file, size, mode="r"
+                                )
         else:
-            self._nc_var.__getitem__(elem, data)
-
+            return self._nc_var.__getitem__(elem)
 
 class s3Group(object):
     """

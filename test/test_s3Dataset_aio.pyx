@@ -54,7 +54,8 @@ def create_test_dataset_nc4(ncd, shape=[30,1,192,145]):
                                   )
     tmp_var.standard_name = "temperature"
     tmp_var.units = "degrees C"
-    #tmp_var[:] = np.random.random(shape) * 60.0 - 20.0
+    tmp_var[:,:,:] = 2.0# np.random.random(shape)
+    #tmp_var[0:10,0:10,0:10,0:10] = 2.0
     scl_var = ncd.createVariable("scl", np.float32)
 
     # time = ncd.createDimension("time", shape[0])
@@ -100,16 +101,27 @@ def create_test_dataset_nc3(ncd, shape=[30,1,192,145]):
                                 )
     tmp_var.standard_name = "temperature"
     tmp_var.units = "degrees C"
+    tmp_var[:,:,:,:] = 2.0
     #tmp_var[:] = np.random.random(shape) * 60.0 - 20.0
     scl_var = ncd.createVariable("scl", np.float32)
 
-# print("Regular NC4 file")
+# print("Write regular NC4 file")
 # ds = s3Dataset(
 #     "/Users/dhk63261/Test/netCDF4_test_nc.nc", format="NETCDF4", mode='w'
 # )
 # res_deg = 1.25
 # create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
 # ds.close()
+#
+# print("Read regular NC4 file")
+# dr = s3Dataset(
+#     "/Users/dhk63261/Test/netCDF4_test_nc.nc", format="NETCDF4", mode='r'
+# )
+#
+# print(dr.variables, dr.groups, dr.dimensions)
+# x = dr.groups["test_group"]
+# tmp = x.variables["tmp"]
+# print(tmp[:,:,90:180,:])
 
 # print("Regular NC3 file")
 # ds = s3Dataset(
@@ -130,15 +142,15 @@ def create_test_dataset_nc3(ncd, shape=[30,1,192,145]):
 # ds.close()
 #
 
-print("Write CFA 0.4 file")
-ds = s3Dataset(
-#    "s3://cedadev-o/nrmassey/netCDF4_test_0.5.nc", format="CFA4", mode='w',
-    "/Users/dhk63261/Test/netCDF4_test_0.4.nc", format="CFA4", mode='w',
-    cfa_version="0.4"
-)
-res_deg = 1.0
-create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-ds.close()
+# print("Write CFA 0.4 file")
+# ds = s3Dataset(
+# #    "s3://cedadev-o/nrmassey/netCDF4_test_0.5.nc", format="CFA4", mode='w',
+#     "/Users/dhk63261/Test/netCDF4_test_0.4.nc", format="CFA4", mode='w',
+#     cfa_version="0.4"
+# )
+# res_deg = 1.0
+# create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
+# ds.close()
 
 print("Write CFA 0.5 file")
 ds = s3Dataset(
@@ -147,8 +159,8 @@ ds = s3Dataset(
     cfa_version="0.5"
 )
 res_deg = 1.0
-create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-print(ds.groups["test_group"].variables["tmp"][0,0,0:10,20:30])
+create_test_dataset_nc4(ds, shape=[365, 60, int(180/res_deg), int(360/res_deg)])
+#print(ds.groups["test_group"].variables["tmp"][0,0,0:10,20:30])
 ds.close()
 
 # very high-res dataset
@@ -163,5 +175,5 @@ dr = s3Dataset(
 #print(dr.variables, dr.groups, dr.dimensions)
 x = dr.groups["test_group"]
 tmp = x.variables["tmp"]
-print(tmp[0,0,90:180,:])
-# v = dr.variables["scl"]
+tmp[:,:,90:180,:]
+v = dr.variables["scl"]

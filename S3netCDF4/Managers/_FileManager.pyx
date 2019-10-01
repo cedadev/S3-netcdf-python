@@ -13,11 +13,15 @@ __license__ = "BSD - see LICENSE file in top-level directory"
 
 import asyncio
 import inspect
+import time
+from psutil import virtual_memory
+from urllib.parse import urlparse
+from collections import namedtuple
+from hashlib import sha1
 
 from S3netCDF4.Managers._ConfigManager import Config
 from S3netCDF4._Exceptions import *
 from S3netCDF4.Backends import *
-from urllib.parse import urlparse
 
 class FileObject(object):
     """Class to return a file object, which contains a file object handle,
@@ -109,6 +113,46 @@ class FileObject(object):
         else:
             self.file_handle.close()
 
+class OpenFileRecord(object):
+    """An object that contains a record of a file in the FileManager.
+    This is different to the FileObject above, which records the file's
+    representation of itself, which is external to the FileManager.
+    OpenFileRecord records the FileManager representation of the file, i.e. the
+    internal representation of the file within the system."""
+
+    """Potential open states"""
+    OPEN_NEW_IN_MEMORY = 0
+    OPEN_EXISTS_IN_MEMORY = 1
+    OPEN_NEW_ON_STORAGE = 2
+    OPEN_EXISTS_ON_STORAGE = 3
+
+    open_state_mapping = {
+        OPEN_NEW_IN_MEMORY : "OPEN_NEW_IN_MEMORY",
+        OPEN_EXISTS_IN_MEMORY : "OPEN_EXISTS_IN_MEMORY",
+        OPEN_NEW_ON_STORAGE : "OPEN_NEW_ON_STORAGE",
+        OPEN_EXISTS_ON_STORAGE : "OPEN_EXISTS_ON_STORAGE"
+    }
+
+    def open_state_str(open_state):
+        """Return a string representation of the open_state."""
+
+    def __init__(self, url, size, file_object, last_accessed, open_state):
+        """Just load all the values in from the constructor."""
+        self.url = url
+        self.size = size
+        self.file_object = file_object
+        self.last_accessed = last_accessed
+        self.open_state = open_state
+
+    def __repr__(self):
+        """String representation of the OpenFileRecord."""
+        repstr = repr(type(self)) + "\n"
+        repstr += "\turl = {}".format(self.url) + "\n"
+        repstr += "\tsize = {}, last_accessed = {}, open_state = {}".format(
+            self.size, self.last_accessed,
+            OpenFileRecord.open_state_mapping[self.open_state]
+        )
+        return repstr
 
 class FileManager(object):
     """Class to return a file object handle when supplied with a URL / URI /
@@ -117,6 +161,9 @@ class FileManager(object):
 
     """Static member variable: ConfigManager"""
     _config = Config()
+
+    def __init__(self):
+        self._open_files = {}
 
     def open(self, url, mode="r"):
         """Open a file on one of the supported backends and return a
@@ -205,3 +252,53 @@ class FileManager(object):
         except:
             _fo._async_system = False
         return _fo
+
+    def request_file(self, url, size, mode="r"):
+        """Request a file, and return a file object to it.
+        1. Files returned from this function are managed.
+        2. They are stored in a dictionary with their file object, size, last
+           time they were accessed and whether they are in memory at the moment.
+        3. If a file is requested and there is not enough memory to hold the
+           file then another file is removed from the memory:
+           3a. If it is a read-only file it is just thrown out
+           3b. If it is a write / append file it is written out to the storage.
+        4. When a file is requested in write mode, it is first checked whether
+           it has been accessed before.
+           4a. If it has then it is read in from the file system (where it was
+           previously written to).
+           4b. If it hasn't then it is created (with CLOBBER - i.e. it is
+           overwritten).
+        5. When a file is requested in append mode it is checked whether it can
+           be read in from the file system.
+           4a. If it exists, it is read in.
+           4b. If it doesn't exist it is created.
+        """
+        # generate the key from hashing the url
+        key = sha1(url).hexdigest()
+        url_path = url.decode("utf-8")
+        if key in self._open_files:
+            # update the open state
+            if self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
+                self._open_files[key].open_state = OpenFileRecord.OPEN_EXISTS_IN_MEMORY
+            # modify the last accessed time
+            self._open_files[key].last_accessed = time.time()
+        else:
+            # the file is not currently in memory - check that there is enough
+            # memory available
+            available_memory = virtual_memory().available
+            if size > available_memory:
+                print("!")
+            else:
+                self._open_files[key] = OpenFileRecord(
+                    url  = url_path,
+                    size = size,
+                    file_object = self.open(url_path, mode),
+                    last_accessed = time.time(),
+                    open_state = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                )
+        return self._open_files[key]
+
+    def free_file(self, url):
+        """Free a file from the file manager after it was opened with request_file
+        """
+        pass
