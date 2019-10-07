@@ -14,6 +14,7 @@ __license__ = "BSD - see LICENSE file in top-level directory"
 import asyncio
 import inspect
 import time
+import os
 from psutil import virtual_memory
 from urllib.parse import urlparse
 from collections import namedtuple
@@ -125,16 +126,17 @@ class OpenFileRecord(object):
     OPEN_EXISTS_IN_MEMORY = 1
     OPEN_NEW_ON_STORAGE = 2
     OPEN_EXISTS_ON_STORAGE = 3
+    OPEN_NEW_ON_DISK = 4
+    OPEN_EXISTS_ON_DISK = 5
 
     open_state_mapping = {
         OPEN_NEW_IN_MEMORY : "OPEN_NEW_IN_MEMORY",
         OPEN_EXISTS_IN_MEMORY : "OPEN_EXISTS_IN_MEMORY",
         OPEN_NEW_ON_STORAGE : "OPEN_NEW_ON_STORAGE",
-        OPEN_EXISTS_ON_STORAGE : "OPEN_EXISTS_ON_STORAGE"
+        OPEN_EXISTS_ON_STORAGE : "OPEN_EXISTS_ON_STORAGE",
+        OPEN_NEW_ON_DISK : "OPEN_NEW_ON_DISK",
+        OPEN_EXISTS_ON_DISK : "OPEN_EXISTS_ON_DISK"
     }
-
-    def open_state_str(open_state):
-        """Return a string representation of the open_state."""
 
     def __init__(self, url, size, file_object, last_accessed, open_state):
         """Just load all the values in from the constructor."""
@@ -203,8 +205,14 @@ class FileManager(object):
         else:
             # try opening just on the file system
             try:
+                # might need to create the parent directory(ies)
+                if mode == "w":
+                    dir_path = os.path.dirname(url)
+                    if not os.path.exists(dir_path):
+                        os.makedirs(dir_path)
+
                 _fo._fh = open(url, mode=mode)
-            except:
+            except Exception as e:
                 raise IOException(
                     "URL or file {} is not found, or host {} is not present"
                     " in the user config file: {}".format(
@@ -280,6 +288,9 @@ class FileManager(object):
             # update the open state
             if self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
                 self._open_files[key].open_state = OpenFileRecord.OPEN_EXISTS_IN_MEMORY
+            elif self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
+                self._open_files[key].open_state = OpenFileRecord.OPEN_EXISTS_ON_DISK
+
             # modify the last accessed time
             self._open_files[key].last_accessed = time.time()
         else:
@@ -289,12 +300,22 @@ class FileManager(object):
             if size > available_memory:
                 print("!")
             else:
+                # get a file object to the (potentially) remote system
+                fo = self.open(url_path, mode)
+                # determine if this filesystem is remote or locally attached disk
+                if fo.remote_system:
+                    # it's remote so create in memory
+                    os = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                else:
+                    # it's local so create on the disk
+                    os = OpenFileRecord.OPEN_NEW_ON_DISK
+                # determine the open state on the file object
                 self._open_files[key] = OpenFileRecord(
                     url  = url_path,
                     size = size,
-                    file_object = self.open(url_path, mode),
-                    last_accessed = time.time(),
-                    open_state = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                    file_object = fo,
+                    open_state = os,
+                    last_accessed = time.time()
                 )
         return self._open_files[key]
 

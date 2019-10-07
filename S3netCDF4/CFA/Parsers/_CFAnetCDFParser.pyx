@@ -44,8 +44,81 @@ class CFA_netCDFParser(CFA_Parser):
                 raise CFAError("Not a CFA file.")
         return cfa_version
 
-    def read(self, nc_dataset):
-        """Parse an already open netcdf_dataset to build the _CFAClasses
+    def __create_s3vars_and_dims(self, s3_object, nc_object, cfa_object):
+        """Consolidate the variables and dimensions in the nc_object (which may
+        be a dataset or a group) into the s3_object (which may also be a dataset
+        or a group), matching them up with the variables and dimensions in the
+        cfa_object (again, which may be a dataset or group)
+        """
+        from S3netCDF4._s3netCDF4 import s3Dimension, s3Variable
+        # loop over the variables
+        s3_object._s3_variables = {}     # reset to empty
+        for var in nc_object.variables:
+            nc_var = nc_object.variables[var]
+            if var in cfa_object.getVariables():
+                cfa_var = cfa_object.getVariable(var)
+                # create the s3Variable with links to the cfa variable and nc_var
+                s3_object._s3_variables[var] = s3Variable(
+                                                    nc_var=nc_var,
+                                                    cfa_var=cfa_var
+                                                )
+            else:
+                s3_object._s3_variables[var] = nc_var
+
+        # loop over the dimensions
+        s3_object._s3_dimensions = {}    # reset to empty
+        for dim in nc_object.dimensions:
+            nc_dim = nc_object.dimensions[dim]
+            if dim in cfa_object.getDimensions():
+                cfa_dim = cfa_object.getDimension(dim)
+                # create the s3Dimension with links to the cfa dimension and nc_dim
+                s3_object._s3_dimensions[dim] = s3Dimension(
+                                                    nc_dim=nc_dim,
+                                                    cfa_dim=cfa_dim
+                                                )
+            else:
+                s3_object._s3_dimensions[dim] = nc_dim
+
+    def __consolidate_from_read(self, s3_dataset):
+        """Consolidate a s3_dataset from the file read in.
+        s3_dataset contains a netCDF dataset (_nc_dataset).  This contains all
+        the definitions of the variables, dimensions and groups as netCDF4
+        variables, dimensions and groups.  We want to convert these into their
+        s3 equivalents (s3_variable, s3_dimension and s3_group).
+        This involves directly manipulating the s3_dataset object.
+        """
+        from S3netCDF4._s3netCDF4 import s3Group
+        nc_dataset = s3_dataset._nc_dataset
+        cfa_dataset = s3_dataset._cfa_dataset
+
+        # loop over the variables and dimensions (in the root group)
+        if "root" in s3_dataset._cfa_dataset.getGroups():
+            cfa_grp = s3_dataset._cfa_dataset.getGroup("root")
+        else:
+            cfa_grp = s3_dataset._cfa_dataset.createGroup("root")
+        self.__create_s3vars_and_dims(s3_dataset, nc_dataset, cfa_grp)
+
+        # loop over the groups
+        for grp in nc_dataset.groups:
+            nc_grp = nc_dataset.groups[grp]
+            if grp in cfa_dataset.getGroups():
+                cfa_grp = cfa_dataset.getGroup(grp)
+                # create the s3Group with links to the cfa group and nc_grp
+                s3_dataset._s3_groups[grp] = s3Group(
+                                                cfa_grp=cfa_grp,
+                                                nc_grp=nc_grp
+                                            )
+                # create the vars and dims in the group
+                self.__create_s3vars_and_dims(
+                    s3_dataset._s3_groups[grp], nc_grp, cfa_grp
+                )
+
+            else:
+                s3_dataset._s3_groups[grp] = nc_grp
+
+
+    def read(self, s3_dataset):
+        """Parse an already open s3_dataset to build the _CFAClasses
         hierarchy.
 
         Args:
@@ -56,6 +129,8 @@ class CFA_netCDFParser(CFA_Parser):
             CFADataset: The CFADataset object, populated with CFAGroups, which
             are in turn populated with CFADims and CFAVariables.
         """
+        # get the netCDF dataset from the s3 dataset
+        nc_dataset = s3_dataset._nc_dataset
         # check this is a CFA file
         if not self.is_file(nc_dataset):
             raise CFAError("Not a CFA file.")
@@ -70,8 +145,6 @@ class CFA_netCDFParser(CFA_Parser):
         if len(nc_dataset.groups) != 0:
             for grp_name in nc_dataset.groups:
                 nc_groups[grp_name] = nc_dataset.groups[grp_name]
-        # add the root group, which is the dataset
-        nc_groups["root"] = nc_dataset
 
         # get the metadata from the dataset in a new dictionary
         nc_dataset_md = {a:nc_dataset.getncattr(a) for a in nc_dataset.ncattrs()}
@@ -129,7 +202,12 @@ class CFA_netCDFParser(CFA_Parser):
                                 cfa_version
                             )
                         )
-        return cfa_dataset
+        # load the cfa_dataset into the s3_dataset that was passed in
+        s3_dataset._cfa_dataset = cfa_dataset
+        # need to "consolidate" the dataset - create s3 variants of the netCDF
+        # groups, variables and dimensions - call .consolidate_from_read
+        # on the s3_dataset passed in
+        self.__consolidate_from_read(s3_dataset)
 
     def write(self, cfa_dataset, s3_dataset):
         """Write the _CFAClasses hierarchy to an already open netcdf_dataset
@@ -161,10 +239,10 @@ class CFA_netCDFParser(CFA_Parser):
             # get the actual group
             cfa_group = cfa_dataset.getGroup(group)
             if (group == "root"):
-                s3_group = nc_dataset
                 nc_group = nc_dataset
+                s3_group = s3_dataset
             else:
-                s3_group = nc_dataset.groups[group]
+                s3_group = s3_dataset.groups[group]
                 nc_group = s3_group._nc_grp
             # set the metadata for the group
             netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
@@ -174,7 +252,7 @@ class CFA_netCDFParser(CFA_Parser):
                 # get the actual cfa variable
                 cfa_var = cfa_group.getVariable(var)
                 # get the variable
-                nc_var = s3_group.variables[var]._nc_var
+                nc_var = s3_group._s3_variables[var]._nc_var
                 # get the variable metadata
                 var_md = dict(cfa_var.getMetadata())
                 # add the cfa metadata - if it is a cfa variable
