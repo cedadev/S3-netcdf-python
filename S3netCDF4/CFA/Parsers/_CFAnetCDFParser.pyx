@@ -138,10 +138,10 @@ class CFA_netCDFParser(CFA_Parser):
         # get the cfa version so we can interpret it as CFA-0.5 (in netCDF4
         # format) or CFA-0.4 (in netCDF3, CLASSIC or netCDF4 format)
         cfa_version = self.get_cfa_version(nc_dataset)
-
         # check to see if there are any groups and, if there is, create a CFAgroup
-        # and add the nc_group to a dictionary of groups
-        nc_groups = {}
+        # and add the nc_group to a dictionary of groups.  Start with the root
+        # group pointing to the base Dataset
+        nc_groups = {"root" : nc_dataset}
         if len(nc_dataset.groups) != 0:
             for grp_name in nc_dataset.groups:
                 nc_groups[grp_name] = nc_dataset.groups[grp_name]
@@ -193,9 +193,7 @@ class CFA_netCDFParser(CFA_Parser):
                     elif cfa_version == "0.5":
                         # this parses from the 0.5 version - i.e. all the metadata
                         # is stored in a variable in a group
-                        cfa_metagroup_name = "cfa_" + nc_varname
-                        cfa_metagroup = nc_group.groups[cfa_metagroup_name]
-                        cfa_var.load(nc_varname, cfa_metagroup)
+                        cfa_var.load(nc_var_md, nc_group)
                     else:
                         raise CFAError(
                             "Unsupported CFA version ({}) in file.".format(
@@ -233,7 +231,7 @@ class CFA_netCDFParser(CFA_Parser):
             dataset_metadata["Conventions"] = cfa_conventions
 
         # set the global metadata
-        netCDF4.Dataset.setncatts(nc_dataset, cfa_dataset.getMetadata())
+        nc_dataset.setncatts(dataset_metadata)
         # get the groups
         for group in cfa_dataset.getGroups():
             # get the actual group
@@ -259,18 +257,16 @@ class CFA_netCDFParser(CFA_Parser):
                 if cfa_var.getRole() != "":
                     var_md['cf_role'] = cfa_var.getRole()
                     var_md['cfa_dimensions'] = " ".join(cfa_var.getDimensions())
-                    # write the data out in a different way if the convention
-                    # version is >= 0.5
+                    # if the convention version is >= 0.5 then the data has
+                    # already been written into the cfa metagroup
+                    # for v0.4 we need to dump it into the attribute string
                     if cfa_version == "0.4":
                         # write the partition data
                         var_md['cfa_array'] = json.dumps(cfa_var.dump()['cfa_array'])
                     elif cfa_version == "0.5":
-                        # get the previously created (in CreateVariable)
-                        # metagroup
-                        cfa_metagroup_name = "cfa_" + var
-                        cfa_metagroup = nc_group.groups[cfa_metagroup_name]
-                        # name this as an attribute in the original variable
-                        var_md['cfa_group'] = cfa_metagroup_name
+                        # just need to name the cfa_metagroup as an attribute in
+                        # the original variable
+                        var_md['cfa_group'] = "cfa_" + var
                     else:
                         raise CFAError(
                             "Unsupported CFA version ({}) in file.".format(

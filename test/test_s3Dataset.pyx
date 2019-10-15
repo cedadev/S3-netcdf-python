@@ -1,36 +1,44 @@
 from S3netCDF4._s3netCDF4 import s3Dataset as s3Dataset
-from netCDF4._netCDF4 import Dataset
+from S3netCDF4._Exceptions import APIException
 import numpy as np
-import json
-import cProfile, pstats
+import unittest
 
-def create_test_dataset_nc4(s3_ds, shape=[30,1,192,145]):
+DEBUG = False
+
+def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     """Create a test dataset for a netCDF file"""
-    s3_ds.history = "Test of CFA-0.5 format"
+    s3_ds.history = "Test of s3netCDF: format: {} cfa_version: {}".format(
+        format, cfa_version
+    )
 
-    # create a group
-    group = s3_ds.createGroup("test_group")
-    #group = s3_ds
+    # create a group if this is a netCDF4 (or CFA4 equivalent) file
+    if format == "netCDF4" or format == "CFA4":
+        group = s3_ds.createGroup("test_group")
+    # otherwise for netCDF3 files the group is the dataset
+    else:
+        group = s3_ds
     group.group_class = "Surface variables"
 
     # create the dimension, the variable, add the variable values and some
-    # metadata    time_dim = group.createDimension("time", shape[0], axis_type="T")
-
-    print("Creating time")
+    # metadata
+    if DEBUG:
+        print("\t . Creating time")
     time_dim = group.createDimension("time", shape[0])
     time_var = group.createVariable("time", np.float32, ("time",))
     time_var[:] = np.arange(0, shape[0])
     time_var.units = "days since 2000-01-01"
     time_var.axis = "T"
 
-    print("Creating level")
+    if DEBUG:
+        print("\t . Creating level")
     level_dim = group.createDimension("level", shape[1])
     level_var = group.createVariable("level", np.float32, ("level",))
     level_var[:] = np.arange(0, shape[1])*100
     level_var.standard_name = "height above sea-level"
     level_var.units = "m"
 
-    print("Creating latitude")
+    if DEBUG:
+        print("\t . Creating latitude")
     latitude_dim = group.createDimension("latitude", shape[2])
     latitude_var = group.createVariable("latitude", np.float32, ("latitude",))
     latitude_vals = 90.0 - np.arange(0, shape[2]) * 180.0/(shape[2]-1)
@@ -39,7 +47,8 @@ def create_test_dataset_nc4(s3_ds, shape=[30,1,192,145]):
     latitude_var.units = "degrees north"
     latitude_var.setncatts({"name": "value", "test":234235})
 
-    print("Creating longitude")
+    if DEBUG:
+        print("\t . Creating longitude")
     longitude_dim = group.createDimension("longitude", shape[3])
     longitude_var = group.createVariable("longitude", np.float32, ("longitude",))
     longitude_vals = np.arange(0, shape[3]) * 360.0/shape[3]
@@ -47,7 +56,8 @@ def create_test_dataset_nc4(s3_ds, shape=[30,1,192,145]):
     longitude_var.standard_name = "longitude"
     longitude_var.units = "degrees east"
 
-    print("Creating tmp")
+    if DEBUG:
+        print("\t . Creating tmp")
     # create the field variable and data
     tmp_var = group.createVariable("tmp", np.float32,
                                     ("time", "level", "latitude", "longitude"),
@@ -55,124 +65,163 @@ def create_test_dataset_nc4(s3_ds, shape=[30,1,192,145]):
                                   )
     tmp_var.standard_name = "temperature"
     tmp_var.units = "degrees C"
-    tmp_var.setncattr("Boom boom", "tish")
-    #tmp_var[:,:,:,:] = 2.0# np.random.random(shape)
-    #tmp_var[0:10,0:10,0:10,0:10] = 2.0
+    tmp_var.setncattr("long_name", "Surface temperature at 1m")
+
+    if DEBUG:
+        print("\t . Writing data")
+
+    # write a slice of data
+    #tmp_var[0] = 2.0
+
+    # write a single scalar of data
     scl_var = s3_ds.createVariable("scl", np.float32)
+    #scl_var[0] = 20
 
-    # time = ncd.createDimension("time", shape[0])
-    # ncd.renameDimension("time", "time_again")
-    # tmp2_var = ncd.createVariable("tmp2", np.float32, ("time_again",))
-    # tmp2_var = ncd.createVariable("tmp3", np.float32, ("time_again",))
+    # write a vector of data
+    vec_dim = s3_ds.createDimension("vector", 128)
+    vec_var = s3_ds.createVariable("vector", np.int32, ("vector",))
+    vec_var[:] = np.arange(0,128)
+    velocity = s3_ds.createVariable("velocity", np.float32, ("vector",))
+    #velocity[0] = 25.0
 
-def create_test_dataset_nc3(ncd, shape=[30,1,192,145]):
-    """Create a test dataset for a netCDF file"""
-    ncd.history = "testing S3-netCDF3"
+def get_file_path(path_stub, format, cfa_version=None):
+    """Get the path to the file for reading or writing.
+    Based on the path_stub, the format and cfa_version.
+    """
+    file_name = "{}_{}".format(path_stub, format)
+    if cfa_version is not None:
+        file_name += "_cfa{}".format(cfa_version)
+    file_name += ".nc"
+    return file_name
 
-    time_dim = ncd.createDimension("time", shape[0])
-    time_var = ncd.createVariable("time", np.float32, ("time",))
-    time_var[:] = np.arange(0, shape[0])
-    time_var.units = "days since 2000-01-01"
-    time_var.axis = "T"
+def test_s3Dataset_write(path_stub, format="netCDF4", cfa_version="0.4",
+                         resolution_degrees=1.5):
+    """Test writing out a s3Dataset, for one of the various permutations of:
+        1. file format (netCDF3 or netCDF4)
+        2. whether it is a S3-netCDF / CFA file or a plain netCDF file
+        3. the CFA version (0.4 or 0.5)
+    """
+    # build a file name from the path stub, the format and the cfa_version
+    # don't use os.path.join as it doesn't handle URLs and paths
+    file_name = get_file_path(path_stub, format, cfa_version)
+    if DEBUG:
+        print("Test writing {}".format(file_name))
+    # open the dataset
+    ds = s3Dataset(file_name, format=format, mode='w', cfa_version=cfa_version)
+    # construct the shape:
+    shape=[365, 60, 180.0/resolution_degrees, 360.0/resolution_degrees]
+    # create the data inside the dataset
+    create_test_dataset(ds, format, cfa_version, shape)
+    if DEBUG:
+        print(ds.groups["test_group"].variables["tmp"])
+        print(ds.variables["scl"])
+    ds.close()
+    return True
 
-    level_dim = ncd.createDimension("level", shape[1])
-    level_var = ncd.createVariable("level", np.float32, ("level",))
-    level_var[:] = np.arange(0, shape[1])*100
-    level_var.standard_name = "height above sea-level"
-    level_var.units = "m"
+def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
+    """Test writing out a s3Dataset, for one of the various permutations of:
+        1. file format (netCDF3 or netCDF4)
+        2. whether it is a S3-netCDF / CFA file or a plain netCDF file
+        3. the CFA version (0.4 or 0.5)
+    """
+    file_name = get_file_path(path_stub, format, cfa_version)
+    if DEBUG:
+        print("Test reading {}".format(file_name))
+    # open the dataset
+    dr = s3Dataset(file_name, mode='r')
+    if format == "netCDF4" or format == "CFA4":
+        group = dr.groups["test_group"]
+    else:
+        group = dr
 
-    latitude_dim = ncd.createDimension("latitude", shape[2])
-    latitude_var = ncd.createVariable("latitude", np.float32, ("latitude",))
-    latitude_vals = 90.0 - np.arange(0, shape[2]) * 180.0/(shape[2]-1)
-    latitude_var[:] = latitude_vals
-    latitude_var.standard_name = "latitude"
-    latitude_var.units = "degrees north"
-    latitude_var.setncatts({"name": "value", "test":234235})
+    if DEBUG:
+        print(group.variables["tmp"])
+        print(dr.variables["scl"])
 
-    longitude_dim = ncd.createDimension("longitude", shape[3])
-    longitude_var = ncd.createVariable("longitude", np.float32, ("longitude",))
-    longitude_vals = np.arange(0, shape[3]) * 360.0/shape[3]
-    longitude_var[:] = longitude_vals
-    longitude_var.standard_name = "longitude"
-    longitude_var.units = "degrees east"
+    tmp_var = group.variables["tmp"]
+    #print(tmp_var[:,:,0,0])
+    dr.close()
+    return True
 
-    # create the field variable and data
-    tmp_var = ncd.createVariable("tmp", np.float32,
-                                  ("time", "level", "latitude", "longitude"),
-                                   fill_value=20e2,
-                                )
-    tmp_var.standard_name = "temperature"
-    tmp_var.units = "degrees C"
-    tmp_var[:,:,:,:] = 2.0
-    #tmp_var[:] = np.random.random(shape) * 60.0 - 20.0
-    scl_var = ncd.createVariable("scl", np.float32)
+class s3DatasetTest(unittest.TestCase):
+    # static class members
+    # all path stubs the same
+    path_stub = "/Users/dhk63261/Test/s3Dataset_test"
+    #path_stub = "s3://minio/dhk63261/Test/s3Dataset_test"
+    res_deg = 2.5
 
-# print("Write regular NC4 file")
-# ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF4_test_nc.nc", format="NETCDF4", mode='w'
-# )
-# res_deg = 1.25
-# create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-# ds.close()
-#
-# print("Read regular NC4 file")
-# dr = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF4_test_nc.nc", format="NETCDF4", mode='r'
-# )
+    #
+    def test_NETCDF4_CFA0_4(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "NETCDF4", "0.4", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "NETCDF4", "0.4")
+        )
 
-# print(dr.variables, dr.groups, dr.dimensions)
-# x = dr.groups["test_group"]
-# tmp = x.variables["tmp"]
-# print(tmp[:,:,90:180,:])
+    def test_NETCDF4_CFA0_5(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "NETCDF4", "0.5", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "NETCDF4", "0.5")
+        )
 
-# print("Write Regular NC3 file")
-# ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF3_test_nc.nc", format="NETCDF3_CLASSIC", mode='w'
-# )
-# res_deg = 2.0
-# create_test_dataset_nc3(ds, shape=[365, 19, 180/res_deg, 360/res_deg])
-# ds.close()
+    def test_NETCDF3_CFA0_4(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "NETCDF3_CLASSIC", "0.4", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "NETCDF3_CLASSIC", "0.4")
+        )
 
+    def test_NETCDF3_CFA0_5(self):
+        with self.assertRaises(APIException):
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "NETCDF3_CLASSIC", "0.5", s3DatasetTest.res_deg
+            )
 
-# print("Write CFA 0.4 file, NC4 format")
-# ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF4_test_0.4.nc", format="CFA4", mode='w',
-#     cfa_version="0.4"
-# )
-# res_deg = 1.0
-# create_test_dataset_nc4(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-# ds.close()
-#
+    def test_CFA4_CFA0_4(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "CFA4", "0.4", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "CFA4", "0.4")
+        )
 
-# print("Write CFA 0.4 file, NC3 format")
-# ds = s3Dataset(
-#     "/Users/dhk63261/Test/netCDF3_test_0.4.nc", format="CFA3", mode='w'
-# )
-# res_deg = 1.0
-# create_test_dataset_nc3(ds, shape=[365, 60, 180/res_deg, 360/res_deg])
-# ds.close()
+    def test_CFA4_CFA0_5(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "CFA4", "0.5", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "CFA4", "0.5")
+        )
 
-print("Write CFA 0.5 file")
-ds = s3Dataset(
-    "/Users/dhk63261/Test/netCDF4_test_0.5.nc", format="CFA4", mode='w',
-    cfa_version="0.5"
-)
-res_deg = 1.0
-create_test_dataset_nc4(ds, shape=[365, 60, int(180/res_deg), int(360/res_deg)])
-#print(ds.groups["test_group"].variables["tmp"][0,0,0:10,20:30])
-ds.close()
+    def test_CFA3_CFA0_4(self):
+        self.assertTrue(
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "CFA3", "0.4", s3DatasetTest.res_deg
+            )
+        )
+        self.assertTrue(
+            test_s3Dataset_read(s3DatasetTest.path_stub, "CFA3", "0.4")
+        )
 
-# very high-res dataset
-# hi_res_deg=0.0125
-# create_test_dataset(ds, shape=[365*4, 200, 180/hi_res_deg, 360/hi_res_deg])
-# ds.close()
+    def test_CFA3_CFA0_5(self):
+        with self.assertRaises(APIException):
+            test_s3Dataset_write(
+                s3DatasetTest.path_stub, "CFA3", "0.5", s3DatasetTest.res_deg
+            )
 
-print("Read CFA 0.5 file")
-dr = s3Dataset(
-    "/Users/dhk63261/Test/netCDF4_test_0.5.nc", mode='r',
-)
-#print(dr.variables, dr.groups, dr.dimensions)
-x = dr.groups["test_group"]
-tmp = x.variables["tmp"]
-tmp[:,:,90:180,:]
-v = dr.variables["scl"]
+if __name__ == '__main__':
+    unittest.main()

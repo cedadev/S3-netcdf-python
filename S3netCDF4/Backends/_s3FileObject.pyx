@@ -19,8 +19,14 @@ class s3FileObject(io.BufferedIOBase):
     implements, at the moment."""
     MAXIMUM_PART_SIZE = 50 * 1024 * 1024 # set at 50MB, minimum multipart
                                          # upload is 5MB
-    MAXIMUM_PARTS_BEFORE_UPLOAD = 4      # the number of parts written to before
+    MAXIMUM_PARTS = 4                    # the number of parts written to before
                                          # they are uploaded
+    # enable / disable multipart upload and download
+    ENABLE_MULTIPART_DOWNLOAD = True
+    ENABLE_MULTIPART_UPLOAD = True
+    # timeouts for connections
+    CONNECT_TIMEOUT = 30.0
+    READ_TIMEOUT = 30.0
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -55,7 +61,9 @@ class s3FileObject(io.BufferedIOBase):
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
                  part_size=MAXIMUM_PART_SIZE,
-                 max_parts=MAXIMUM_PARTS_BEFORE_UPLOAD):
+                 max_parts=MAXIMUM_PARTS,
+                 multipart_upload=ENABLE_MULTIPART_UPLOAD,
+                 multipart_download=ENABLE_MULTIPART_DOWNLOAD):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
@@ -68,6 +76,8 @@ class s3FileObject(io.BufferedIOBase):
         self._buffer = [io.BytesIO()]   # have a list of objects that can stream
         self._credentials = credentials
         self._create_bucket = create_bucket
+        self._multipart_upload = multipart_upload
+        self._multipart_download = multipart_download
 
     def __enter__(self):
         """Create the connection on an enter."""
@@ -133,11 +143,16 @@ class s3FileObject(io.BufferedIOBase):
         if self._conn_obj is None:
             try:
                 session = botocore.session.get_session()
+                config = botocore.config.Config(
+                    connect_timeout=s3FileObject.CONNECT_TIMEOUT,
+                    read_timeout=s3FileObject.READ_TIMEOUT
+                )
                 s3c = session.create_client(
                           "s3",
                           endpoint_url=self._server,
                           aws_access_key_id=self._credentials["accessKey"],
-                          aws_secret_access_key=self._credentials["secretKey"]
+                          aws_secret_access_key=self._credentials["secretKey"],
+                          config=config
                       )
                 # add the connection to the connection pool
                 self._conn_obj = s3FileObject._connection_pool.add(
@@ -199,6 +214,14 @@ class s3FileObject(io.BufferedIOBase):
                 file_size = self._getsize()
                 if range_end >= file_size:
                     range_end = file_size-1
+
+            if not self._multipart_download:
+                s3_object = self._conn_obj.conn.get_object(
+                    Bucket = self._bucket,
+                    Key = self._path,
+                )
+                body = s3_object['Body']
+            else:
                 s3_object = self._conn_obj.conn.get_object(
                     Bucket = self._bucket,
                     Key = self._path,
@@ -335,7 +358,8 @@ class s3FileObject(io.BufferedIOBase):
             # test to see whether we should do a multipart upload now
             # this occurs when the number of buffers is > the maximum number of
             # parts.  self._current_part is indexed from 1
-            if self._seek_pos > self._part_size:
+            if (self._multipart_upload and
+                self._seek_pos > self._part_size):
                 if len(self._buffer) == self._max_parts:
                     self._multipart_upload_from_buffer()
                 else:

@@ -72,8 +72,7 @@ class s3Dimension(object):
         if name in s3Dimension._private_atts:
             return self.__dict__[name]
         else:
-            # use eval to return _nc_dim function
-            return eval("self._nc_dim.{}".format(name))
+            return self._nc_dim.__getattr__(name)
 
     def __setattr__(self, name, value):
         """Override the __getattr__ for the dimension and return the
@@ -218,40 +217,8 @@ class s3Variable(object):
             # get the version of the cfa dataset
             cfa_version = s3_dataset._cfa_dataset.getCFAVersion()
 
-            if cfa_version == "0.5":
-                # create the custom datatypes in the netCDF file, if not already
-                # created
-                if not "Partition" in ncd.cmptypes:
-                    partition_type = ncd.createCompoundType(
-                        Partition_type, "Partition"
-                    )
-                else:
-                    partition_type = ncd.cmptypes["Partition"]
-
-                # write out the cfa data as a group, with the same name as the
-                # variable, prefixed with "cfa_"
-                cfa_metagroup_name = "cfa_" + name
-                # create this "metagroup"
-                cfa_metagroup = nc_parent.createGroup(cfa_metagroup_name)
-
-                # create the Partition dimensions
-                for d in range(0, len(pm_dimensions)):
-                    part_dim = cfa_metagroup.createDimension(
-                                   pm_dimensions[d], pm_shape[d]
-                               )
-                # create the partition variable, with compression to compress
-                # empty parts of strings for filename and variable
-                partition_var = cfa_metagroup.createVariable(
-                    name, partition_type, tuple(pm_dimensions),
-                )
-                # write the partition information directly into the partitions
-                # variable in the netCDF file
-                self._cfa_var.writePartitions(partition_var)
-            elif (cfa_version == "0.4"):
-                # create a numpy array of the complex datatype
-                partitions = np.empty(pm_shape, dtype=Partition_type)
-                # write the parition information into this numpy array
-                self._cfa_var.writePartitions(partitions)
+            if cfa_version == "0.5" or cfa_version == "0.4":
+                self._cfa_var.writePartitions(cfa_version, nc_parent)
             else:
                 raise CFAError("Unsupported CFA version {}.".format(cfa_version))
 
@@ -272,65 +239,33 @@ class s3Variable(object):
             chunk_cache=chunk_cache
         )
 
-    def _setatt(self, cfa_object, name, value):
-        if not (name in netCDF4._private_atts or name in s3Variable._private_atts):
-            # we will rely on error checking in the super class __setattr__
-            # which we will call when the file is written
-            cfa_object.metadata[name] = value
-        elif not name.endswith('__'):
-            if hasattr(self, name):
-                raise AttributeError((
-                "'%s' is one of the reserved attributes %s, cannot rebind. "
-                "Use setncattr instead." % (name, tuple(
-                    netCDF4._private_atts, s3Variable._private_atts
-                ))
-            ))
-            else:
-                self.__dict__[name]=value
+    def __getattr__(self, name):
+        """Override the __getattr__ for the Group so as to return its
+        private variables."""
+        if name in s3Variable._private_atts:
+            return self.__dict__[name]
+        elif name in netCDF4._private_atts:
+            return self._nc_var.__getattr__(name)
+        elif hasattr(self, "_cfa_var") and self._cfa_var:
+            return self._cfa_var.metadata[name]
+        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+            return self._cfa_dim.metadata[name]
+        else:
+            return self._nc_var.__getattr__(name)
 
     def __setattr__(self, name, value):
-        """Override the __setattr__ for the variable and store the attribute in
-        the cfa_metadata.  This ensures that all of the metadata is passed down
-        to the variable in the subarray files, and that any editting of the
-        attributes is done before the subarray files are written."""
-        # if name in _private_atts, it is stored at the python
-        # level and not in the netCDF file.
+        """Override the __setattr__ for the Group so as to assign its
+        private variables."""
         if name in s3Variable._private_atts:
             self.__dict__[name] = value
+        elif name in netCDF4._private_atts:
+            self._nc_var.__setattr__(name, value)
         elif hasattr(self, "_cfa_var") and self._cfa_var:
-            self._setatt(self._cfa_var, name, value)
+            self._cfa_var.metadata[name] = value
         elif hasattr(self, "_cfa_dim") and self._cfa_dim:
-            self._setatt(self._cfa_dim, name, value)
+            self._cfa_dim.metadata[name] = value
         else:
             self._nc_var.__setattr__(name, value)
-
-    def __getattr__(self, name):
-        """Override the __getattr__ for the variable and return the
-        corresponding attribute from the cfa_metadata."""
-        # if name in _private_atts, it is stored at the python
-        # level and not in the netCDF file.
-        if name.startswith('__') and name.endswith('__'):
-            # if __dict__ requested, return a dict with netCDF attributes.
-            if name == '__dict__':
-                return self._nc_var.__getattr__(name)
-            else:
-                raise AttributeError
-        else:
-            if name in s3Variable._private_atts:
-                return self.__dict__[name]
-            elif hasattr(self, "_cfa_var") and self._cfa_var:
-                try:
-                    return self._cfa_var.metadata[name]
-                except KeyError:
-                    return eval("self._nc_var.{}".format(name))
-            elif hasattr(self, "_cfa_dim") and self._cfa_dim:
-                try:
-                    return self._cfa_dim.metadata[name]
-                except KeyError:
-                    return eval("self._nc_var.{}".format(name))
-            else:
-                # use eval to return _nc_var function
-                return eval("self._nc_var.{}".format(name))
 
     def delncattr(self, name):
         """Override delncattr function to manipulate the metadata dictionary,
@@ -651,16 +586,26 @@ class s3Group(object):
         private variables."""
         if name in s3Group._private_atts:
             return self.__dict__[name]
+        elif name in netCDF4._private_atts:
+            return self._nc_grp.__getattr__(name)
+        elif hasattr(self, "_cfa_grp") and self._cfa_grp:
+            return self._cfa_grp.metadata[name]
         else:
-            return eval("self._nc_grp.{}".format(name))
+            return self._nc_grp.__getattr__(name)
+
 
     def __setattr__(self, name, value):
         """Override the __setattr__ for the Group so as to assign its
         private variables."""
         if name in s3Group._private_atts:
             self.__dict__[name] = value
+        elif name in netCDF4._private_atts:
+            self._nc_grp.__setattr__(name, value)
+        elif hasattr(self, "_cfa_grp") and self._cfa_grp:
+            self._cfa_grp.metadata[name] = value
         else:
             self._nc_grp.__setattr__(name, value)
+
 
 class s3Dataset(object):
     """
@@ -685,6 +630,14 @@ class s3Dataset(object):
         functionally has been moved to the FileManager.
         Python reserved methods cannot be declared as `async`.
         """
+        # check CFA compatibility 0.5 can only be used with NETCDF4 or CFA4
+        # (strictly CFA4, but we'll allow the user some leeway)
+        if cfa_version == "0.5":
+            if format == "CFA3" or format == "NETCDF3_CLASSIC":
+                raise APIException(
+                    "CFA 0.5 is not compatible with NETCDF3 file formats."
+                )
+
         # Create a file manager object and keep it
         self._file_manager = FileManager()
         self._mode = mode
@@ -694,15 +647,15 @@ class s3Dataset(object):
         if 'b' not in mode:
             fh_mode = mode + 'b'
 
-        # create the file object, this controls access to the various
-        # file backends that are supported
-        self._file_object = self._file_manager.open(filename, mode=fh_mode)
-
         # set the group to be an empty dictionary.  There will always be one
         # group - the root group, this will be created later
         self._s3_groups = {}
         self._s3_dimensions = {}
         self._s3_variables = {}
+
+        # create the file object, this controls access to the various
+        # file backends that are supported
+        self._file_object = self._file_manager.open(filename, mode=fh_mode)
 
         # set the file up for write mode
         if mode == 'w':
@@ -730,29 +683,34 @@ class s3Dataset(object):
                 file_type = format
                 self._cfa_dataset = None
 
-            if self.file_object.remote_system:
+            if self._file_object.remote_system:
                 # call the constructor of the netCDF4.Dataset class
                 self._nc_dataset = netCDF4.Dataset(
                     "inmemory.nc", mode=mode, clobber=clobber,
-                    format=file_type, diskless=True, persist=persist,
+                    format=file_type, diskless=True, persist=False,
                     keepweakref=keepweakref, memory=0, **kwargs
                 )
             else:
+                # this is a non remote file, i.e. just on the disk
                 self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
+                # close the existing file hangle and set the file_object to be
+                # the netcdf dataset
+                self._file_object.close()
+                self._file_object._fh = self._nc_dataset
         # handle read-only mode
         elif mode == 'r':
             # get the header data
-            data = self.file_object.read_from(0, 6)
+            data = self._file_object.read_from(0, 6)
             file_type, file_version = s3Dataset._interpret_netCDF_filetype(data)
             # check what the file type is a netCDF file or not
             if file_type == 'NOT_NETCDF':
                 raise IOError("File: {} is not a netCDF file".format(filename))
                 # read the file in, or create it
-            if self.file_object.remote_system:
+            if self._file_object.remote_system:
                 # stream into memory
                 nc_bytes = self.file_object.read()
                 # call the base constructor
@@ -762,14 +720,19 @@ class s3Dataset(object):
                     keepweakref=keepweakref, memory=nc_bytes, **kwargs
                 )
             else:
+                # close the open file object
+                self._file_object.close()
                 self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
+                # reassign the file handle
+                self._file_object._fh = self._nc_dataset
+
             # parse the CFA file if it is one
             parser = CFA_netCDFParser()
-            if parser.is_file(self):
+            if parser.is_file(self._nc_dataset):
                 parser.read(self)
         else:
             # no other modes are supported
@@ -783,9 +746,13 @@ class s3Dataset(object):
             self._cfa_dataset):
             parser = CFA_netCDFParser()
             parser.write(self._cfa_dataset, self)
+
         # call the base class close method
-        nc_bytes = self._nc_dataset.close()
-        self.file_object.close(nc_bytes)
+        if self._file_object.remote_system:
+            nc_bytes = self._nc_dataset.close()
+            self._file_object.close(nc_bytes)
+        else:
+            self._file_object.close()
 
     def createDimension(self, dimname, size=None,
                         axis_type="U", metadata={}):
@@ -867,14 +834,22 @@ class s3Dataset(object):
             return self.__dict__[name]
         elif name == "groups":
             return self.groups
+        elif name in netCDF4._private_atts:
+            return self._nc_dataset.__getattr__(name)
+        elif hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            return self._cfa_dataset.metadata[name]
         else:
-            return eval("self._nc_dataset.{}".format(name))
+            return self._nc_dataset.__getattr__(name)
 
     def __setattr__(self, name, value):
         """Override the __setattr__ for the Dataset so as to assign its
         private variables."""
         if name in s3Dataset._private_atts:
             self.__dict__[name] = value
+        elif name in netCDF4._private_atts:
+            self._nc_dataset.__setattr__(name, value)
+        elif hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            self._cfa_dataset.metadata[name] = value
         else:
             self._nc_dataset.__setattr__(name, value)
 

@@ -7,6 +7,7 @@ from urllib.parse import urlparse, urljoin, urlsplit
 import asyncio
 import aiobotocore
 from botocore.exceptions import ClientError
+import botocore.config
 
 from S3netCDF4.Managers._ConnectionPool import ConnectionPool, ConnectionObject
 from S3netCDF4._Exceptions import APIException, IOException
@@ -25,6 +26,9 @@ class s3aioFileObject(object):
     # enable / disable multipart upload and download
     ENABLE_MULTIPART_DOWNLOAD = True
     ENABLE_MULTIPART_UPLOAD = True
+    # timeouts for connections
+    CONNECT_TIMEOUT = 30.0
+    READ_TIMEOUT = 30.0
 
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
@@ -141,11 +145,16 @@ class s3aioFileObject(object):
         if self._conn_obj is None:
             try:
                 session = aiobotocore.get_session()
+                config = botocore.config.Config(
+                    connect_timeout=s3aioFileObject.CONNECT_TIMEOUT,
+                    read_timeout=s3aioFileObject.READ_TIMEOUT
+                )
                 s3c = session.create_client(
                           "s3",
                           endpoint_url=self._server,
                           aws_access_key_id=self._credentials["accessKey"],
-                          aws_secret_access_key=self._credentials["secretKey"]
+                          aws_secret_access_key=self._credentials["secretKey"],
+                          config=config
                       )
                 # add the connection to the connection pool
                 self._conn_obj = s3aioFileObject._connection_pool.add(
@@ -156,6 +165,7 @@ class s3aioFileObject(object):
                     "Could not connect to S3 endpoint {} {}".format(
                         self._server, e)
                 )
+
         if 'r' in self._mode:
             # if this is a read method then check the file exists
             response = await self._conn_obj.conn.list_objects_v2(

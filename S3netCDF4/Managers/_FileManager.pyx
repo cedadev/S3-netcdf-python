@@ -94,7 +94,7 @@ class FileObject(object):
             data = self.file_handle.read()
         return data
 
-    def close(self, data):
+    def close(self, data=None):
         """Close the Dataset."""
         # write any in-memory data into the file, if it is a remote file
         if ('w' in self._mode and self._remote_system and data is not None):
@@ -210,17 +210,20 @@ class FileManager(object):
                     dir_path = os.path.dirname(url)
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
-
                 _fo._fh = open(url, mode=mode)
             except Exception as e:
-                raise IOException(
-                    "URL or file {} is not found, or host {} is not present"
-                    " in the user config file: {}".format(
-                        url,
-                        alias,
-                        FileManager._config["filename"]
-                )
-            )
+                if alias != "://" and alias not in FileManager._config["hosts"]:
+                    raise IOException(
+                        "Host {} is not present in the user config file: {}".format(
+                            alias,
+                            FileManager._config["filename"]
+                        )
+                    )
+                else:
+                    raise IOException(
+                        "URL or file {} is not found.".format(
+                            url)
+                    )
         # determine whether this is a remote file system and / or an asyncio
         # file system
         # see if it's a remote dataset - if the file handle has a connect method
@@ -282,8 +285,7 @@ class FileManager(object):
            4b. If it doesn't exist it is created.
         """
         # generate the key from hashing the url
-        key = sha1(url).hexdigest()
-        url_path = url.decode("utf-8")
+        key = sha1(url.encode("utf-8")).hexdigest()
         if key in self._open_files:
             # update the open state
             if self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
@@ -301,7 +303,7 @@ class FileManager(object):
                 print("!")
             else:
                 # get a file object to the (potentially) remote system
-                fo = self.open(url_path, mode)
+                fo = self.open(url, mode)
                 # determine if this filesystem is remote or locally attached disk
                 if fo.remote_system:
                     # it's remote so create in memory
@@ -311,7 +313,7 @@ class FileManager(object):
                     os = OpenFileRecord.OPEN_NEW_ON_DISK
                 # determine the open state on the file object
                 self._open_files[key] = OpenFileRecord(
-                    url  = url_path,
+                    url  = url,
                     size = size,
                     file_object = fo,
                     open_state = os,
