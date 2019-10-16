@@ -70,19 +70,14 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     if DEBUG:
         print("\t . Writing data")
 
-    # write a slice of data
-    #tmp_var[0] = 2.0
-
     # write a single scalar of data
     scl_var = s3_ds.createVariable("scl", np.float32)
-    #scl_var[0] = 20
 
     # write a vector of data
     vec_dim = s3_ds.createDimension("vector", 128)
     vec_var = s3_ds.createVariable("vector", np.int32, ("vector",))
     vec_var[:] = np.arange(0,128)
     velocity = s3_ds.createVariable("velocity", np.float32, ("vector",))
-    #velocity[0] = 25.0
 
 def get_file_path(path_stub, format, cfa_version=None):
     """Get the path to the file for reading or writing.
@@ -115,6 +110,11 @@ def test_s3Dataset_write(path_stub, format="netCDF4", cfa_version="0.4",
     if DEBUG:
         print(ds.groups["test_group"].variables["tmp"])
         print(ds.variables["scl"])
+
+    tmp_var = ds.groups["test_group"].variables["tmp"]
+    tmp_var[0,0,0,0] = 25.0
+    vel_var = ds.variables["velocity"]
+    vel_var[0] = 10.0
     ds.close()
     return True
 
@@ -139,7 +139,7 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print(dr.variables["scl"])
 
     tmp_var = group.variables["tmp"]
-    #print(tmp_var[:,:,0,0])
+    print(tmp_var[0,:,:,:])
     dr.close()
     return True
 

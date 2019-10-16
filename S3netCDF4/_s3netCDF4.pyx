@@ -218,7 +218,9 @@ class s3Variable(object):
             cfa_version = s3_dataset._cfa_dataset.getCFAVersion()
 
             if cfa_version == "0.5" or cfa_version == "0.4":
-                self._cfa_var.writePartitions(cfa_version, nc_parent)
+                self._cfa_var.writeInitialPartitionInfo(
+                    cfa_version, nc_parent
+                )
             else:
                 raise CFAError("Unsupported CFA version {}.".format(cfa_version))
 
@@ -357,14 +359,15 @@ class s3Variable(object):
 
     def __create_subarray_ncfile(self, index, in_memory=True, mode="w"):
         """Create the subarray file, either in memory or on disk."""
-        file_path = index.file.decode("utf-8")
         # get the parent dataset to get the information used in its creation,
         # so that it can be mirrored in the creation of the sub-array files
         if hasattr(self.parent, "_nc_grp"):
             ncd = self.parent.parent._nc_dataset
         else:
             ncd = self.parent._nc_dataset
-        nc_dataset = netCDF4.Dataset(file_path, mode=mode, format=ncd.data_model)
+        nc_dataset = netCDF4.Dataset(
+            index.partition.file, mode=mode, format=ncd.data_model
+        )
 
     def __setitem__(self, elem, data):
         """Override the netCDF4.Variable __setitem__ method to assign data to
@@ -380,11 +383,11 @@ class s3Variable(object):
             # (filename, varname, source_slice, target_slice)
             index_list = self._cfa_var.__getitem__(elem)
             for index in index_list:
-                size = np.prod(index.shape)
+                size = np.prod(index.partition.shape)
                 # check with the filemanager what state the file is in, and
                 # whether we should open it
                 request_object = self._file_manager.request_file(
-                                    index.file, size, mode="w"
+                                    index.partition.file, size, mode="w"
                                 )
                 if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
                     # create a netCDF file in memory if it has not been created
@@ -392,10 +395,16 @@ class s3Variable(object):
                     self.__create_subarray_ncfile(
                         index, in_memory = True, mode="w"
                     )
+                    # write the partition information to the master array var
+                    self._cfa_var.writePartition(index.partition)
+
                 elif request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
                     self.__create_subarray_ncfile(
                         index, in_memory = False, mode="w"
                     )
+                    # write the partition information to the master array
+                    self._cfa_var.writePartition(index.partition)
+
                 # # if it has been created before then use the previously created
                 # # file
                 # elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
@@ -418,10 +427,11 @@ class s3Variable(object):
                 # when the file is streamed into memory, the whole file is read
                 # in - i.e. it is opened in memory by netCDF.
                 # We need to reserve the full amount of space
-                size = np.prod(i.shape)
-                request_object = self._file_manager.request_file(
-                                    i.file, size, mode="r"
-                                )
+                print(self._cfa_var.partitionIsDefined(i.partition.index))
+                size = np.prod(i.partition.shape)
+                # request_object = self._file_manager.request_file(
+                #                     i.file, size, mode="r"
+                #                 )
         else:
             return self._nc_var.__getitem__(elem)
 

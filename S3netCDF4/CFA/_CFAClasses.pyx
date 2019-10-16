@@ -17,21 +17,6 @@ import netCDF4._netCDF4 as netCDF4
 from S3netCDF4.CFA._CFAExceptions import *
 from S3netCDF4.CFA._CFASplitter import CFASplitter
 
-"""
-   These are the custom CompoundTypes for the Subarray and Partition in the
-   netCDF4 implementation of CFA-netCDF.  They are written into the netCDF file
-   as an array, rather than writing directly into the metadata.
-   This enables slicing of the array rather than loading the entire metadata
-   into memory at once,
-"""
-
-def numpy_string_to_python(np_string):
-    """Convert a numpy representation of a string (an array of characters) to
-    a Python string."""
-    return np_string.tostring().decode("utf-8").strip("\x00")
-
-""""""
-
 cdef class CFADataset:
     """
        Class containing details of a CFADataset (master array)
@@ -491,11 +476,6 @@ cdef class CFAGroup:
                 pmshape=pmshape,
             )
 
-            # later we will have to write the partition information into the
-            # CFAVariable partition object using CFAVariable.writePartitions
-            # this also makes getPartitionDefinitions redundant, so we aren't
-            # moving large chunks of data around for large arrays
-
         return self.cfa_vars[var_name]
 
     cpdef CFAVariable getVariable(CFAGroup self, basestring var_name):
@@ -655,6 +635,7 @@ cdef class CFAVariable:
     cdef basestring base
     cdef np.ndarray _shape
     cdef object nc_partition_group
+    cdef np.ndarray subarray_shape
 
     cfa_variable_metadata_keys = ["cf_role", "cfa_dimensions", "cfa_array"]
 
@@ -702,7 +683,6 @@ cdef class CFAVariable:
             repstr += "\t{} : {}\n".format(md, self.metadata[md])
         return repstr[:-1]
 
-
     def __getitem__(CFAVariable self, in_key):
         """Return all the subarrays required to take a slice out of the master
            array, the slice to take within the subarray and the position of that
@@ -719,14 +699,14 @@ cdef class CFAVariable:
                   slice: array: the index into the subarray file
                   position: array: the position in the master array file
         """
+        cdef np.ndarray source_slice          # slice in the source partition
+        cdef np.ndarray target_slice          # slice in the target master array
+        cdef list return_list
         cdef np.ndarray slices                # don't use slices, use nx3
         cdef list slice_range                 # dimesional numpy arrays
         cdef list index_list                  # for speed!
         cdef list new_index_list
-        cdef np.ndarray source_slice          # slice in the source partition
-        cdef np.ndarray target_slice          # slice in the target master array
-        cdef list return_list
-        cdef int s, x, d, n                   # iterator variables
+        cdef int s, x, n                      # iterator variables
 
         # try to get the length or convert to list
         try:
@@ -741,8 +721,7 @@ cdef class CFAVariable:
         slices = np.empty([len(shape), 3], np.int32)
         for s in range(0, key_l):
             key_ts = type(key[s])
-            if (key_ts is int or key_ts is np.int32 or key_ts is np.int64 or
-                key_ts is np.int16 or key_ts is np.int8):
+            if (key_ts in [int, np.int32, np.int64, np.int16, np.int8]):
                 slices[s,:] = [key[s], key[s], 1]
             elif key_ts is slice:
                 key_list = key[s].indices(shape[s])
@@ -801,13 +780,14 @@ cdef class CFAVariable:
                     # add to the new list
                     new_index_list.append(z)
             index_list = copy(new_index_list)
+
         # now get the partition filenames, with the variable and the source
         # and target slices necessary to copy a slice from a subarray to a
         # master array
         return_list = []
         return_type = namedtuple(
                         'return_type',
-                        'file ncvar shape source target'
+                        'partition source target'
                       )
         for i in index_list:
             partition = self.getPartition(i)
@@ -841,9 +821,7 @@ cdef class CFAVariable:
                     target_slice[d,0] = 0
 
             # append in order: filename, varname, source_slice, target_slice
-            return_list.append(return_type(file   = partition.file,
-                                           ncvar  = partition.ncvar,
-                                           shape  = partition.shape,
+            return_list.append(return_type(partition = partition,
                                            source = source_slice,
                                            target = target_slice)
                               )
@@ -882,60 +860,8 @@ cdef class CFAVariable:
                               for d in self.getDimensions()]
         return self._shape
 
-    cpdef np.ndarray getPartitionMatrixShape(CFAVariable self):
-        """Get the partition matrix shape."""
-        return self.pmshape
-
-    cpdef list getPartitionMatrixDimensions(CFAVariable self):
-        """Get the names of the dimensions in the partition matrix"""
-        return self.pmdimensions
-
-    cpdef object getPartition(CFAVariable self, index):
-        """Get the partition at the index"""
-        # get the list index from the partition look up table
-        try:
-            # Get a partition.  This is defined as a collection of variables
-            # in a netCDF group, we take a slice from each of the variables
-            # and return them all as a named tuple
-            index = tuple(index)  # convert from a list to a tuple if necessary
-            part = CFAPartition(
-                index = self.nc_partition_group.variables["index"][index],
-                location = self.nc_partition_group.variables["location"][index],
-                ncvar = self.nc_partition_group.variables["ncvar"][index],
-                file = self.nc_partition_group.variables["file"][index],
-                format = self.nc_partition_group.variables["format"][index],
-                shape = self.nc_partition_group.variables["shape"][index]
-            )
-
-        except IndexError as ie:
-            raise CFAPartitionIndexError(
-                "No partition with index: {} exists for the variable: {}".format(
-                    index, self.var_name
-                )
-            )
-        return part
-
-    cpdef writePartitions(CFAVariable self,
-                          basestring cfa_version,
-                          object nc_parent):
-        """Set the partitions - this is a reference to a group contained in the
-        netCDF master file (for CFA-0.5) or a dataset contained within memory
-        (for CFA-0.4)"""
-        if cfa_version == "0.4":
-            # create Dataset in memory
-            self.nc_partition_group = netCDF4.Dataset(
-                "inmemory.nc", mode="w", diskless=True, persist=False,
-                memory=0
-            )
-            self._create_nc_partition(self.nc_partition_group)
-        elif cfa_version == "0.5":
-            # create group in file
-            cfa_metagroup_name = "cfa_" + self.var_name
-            self.nc_partition_group = nc_parent.createGroup(cfa_metagroup_name)
-            self._create_nc_partition(self.nc_partition_group)
-
-        ncp = self.nc_partition_group
-
+    cpdef getBaseFilename(CFAVariable self):
+        """Create the file name path that is common between all subarray files"""
         # create the base filename
         file_path = self.getGroup().getDataset().getName()
         # trim the ".nc" off the end
@@ -950,123 +876,165 @@ cdef class CFAVariable:
         # add the varname
         base_filename += "." + self.var_name + "."
 
-        # get the number of sub arrays
-        if len(self.pmshape) == 0:
-            n_subarrays = 1
-        else:
-            n_subarrays = np.prod(self.pmshape)
-        n_pm_dims = len(self.pmshape)
+        return base_filename
 
-        # create the current partition index
-        c_pindex = np.zeros(n_pm_dims, 'i')
+    cpdef partitionIsDefined(CFAVariable self, index):
+        """Return whether a partition is defined or not - i.e. has it been
+        written to yet."""
+        filename = self.nc_partition_group.variables["file"][index]
+        return filename != ""
 
-        # get the (floating point) shape for each subarray
-        subarray_shape = self.shape() / self.pmshape
+    cpdef np.ndarray getPartitionMatrixShape(CFAVariable self):
+        """Get the partition matrix shape."""
+        return self.pmshape
+
+    cpdef list getPartitionMatrixDimensions(CFAVariable self):
+        """Get the names of the dimensions in the partition matrix"""
+        return self.pmdimensions
+
+    cpdef object getPartition(CFAVariable self, index):
+        """Get the partition at the index.  This is now autogenerated to reduce
+        memory overhead and remove the need for parsing."""
+        # get the list index from the partition look up table
+        try:
+            # autogen partition info - no need to call the writePartition method
+            # until the file is going to be written
+            index = tuple(index) # use a copy
+            subarray_shape = self.shape() / self.pmshape
+            location = np.empty((len(self.pmshape), 2), 'i')
+            # calculate the start and end locations
+            location[:,0] = (0.5+index[:] *
+                            subarray_shape).astype('i')
+            # -1 here as CFA expects indices to be *inclusive*
+            location[:,1] = (0.5+index[:] *
+                            subarray_shape +
+                            subarray_shape -1).astype('i')
+            # get the integer subarray shape for this actual partition
+            # (add the 1 back on that was subtracted above)
+            actual_subarray_shape = (location[:,1] - location[:,0]+1)
+
+            # create the name of the subarray file with the numbering system
+            # have to check if self.base_filename is None for an undefinied
+            # partition
+            filename = (self.getBaseFilename() +
+                        ".".join([str(i) for i in index]) +
+                        ".nc"
+                       )
+            part = CFAPartition(
+                index = index,
+                location = location,
+                ncvar = self.var_name,
+                file = filename,
+                format = self.getGroup().getDataset().getFormat(),
+                shape = actual_subarray_shape
+            )
+
+        except IndexError as ie:
+            raise CFAPartitionIndexError(
+                "No partition with index: {} exists for the variable: {}".format(
+                    index, self.var_name
+                )
+            )
+        return part
+
+    cpdef writePartition(CFAVariable self, object partition):
+        """write the partition to the nc_partition group."""
+        # shortcut to the partition group
+        ncp = self.nc_partition_group
+        # write the partition info into the netCDF group representation of
+        # a partition
+        index = partition.index
+        ncp.variables["index"][index] = partition.index
+        ncp.variables["location"][index] =  partition.location
+        ncp.variables["ncvar"][index] =  partition.ncvar
+        ncp.variables["file"][index] = partition.file
+        ncp.variables["format"][index] = partition.format
+        ncp.variables["shape"][index] = partition.shape
+
+    cpdef writeInitialPartitionInfo(CFAVariable self, basestring cfa_version,
+                                    object nc_parent):
+        """Set the partitions - this is a reference to a group contained in the
+        netCDF master file (for CFA-0.5) or a dataset contained within memory
+        (for CFA-0.4)"""
+        # create the partition definition either in the file or in memory
+        self.createNCPartition(cfa_version, nc_parent)
+
+        # shortcut to the partition group
+        ncp = self.nc_partition_group
 
         # set the pmshape
         ncp.variables["pmshape"][:] = self.pmshape
         # set the pmdimensions
         ncp.variables["pmdimensions"][0] = ", ".join(self.pmdimensions)
 
-        # iterate through all the subarrays increasing the partitions
-        for s in range(0, n_subarrays):
-            # set partition index to current iterated partition index
-            index = np.array(c_pindex) # use a copy
+        # partitions are dynamically created now, so no need to call
+        # writePartition repeatedly
 
-            location = np.empty((n_pm_dims, 2), 'i')
-            # calculate the start and end locations
-            location[:,0] = (0.5+c_pindex[:] *
-                            subarray_shape).astype('i')
-            # -1 here as CFA expects indices to be *inclusive*
-            location[:,1] = (0.5+c_pindex[:] *
-                             subarray_shape +
-                             subarray_shape -1).astype('i')
-            # get the integer subarray shape for this actual partition
-            # (add the 1 back on that was subtracted above)
-            actual_subarray_shape = (location[:,1] - location[:,0]+1)
-
-            # create the name of the subarray file with the numbering system
-            filename = (base_filename +
-                         ".".join([str(i) for i in index]) +
-                         ".nc"
-                       )
-
-            # write the partition info into the netCDF group representation of
-            # a partition
-            it = tuple(index)
-            ncp.variables["index"][it] = index
-            ncp.variables["location"][it] = location
-            ncp.variables["ncvar"][it] = self.var_name
-            ncp.variables["file"][it] = filename
-            ncp.variables["format"][it] =self.getGroup().getDataset().getFormat()
-            ncp.variables["shape"][it] = actual_subarray_shape
-
-            # increase current iterated partition index
-            c_pindex[-1] += 1
-            # now check if any of the current iterated index is greater than the shape of the partition matrix
-            for i in range(len(subarray_shape)-1, 0, -1):
-                if c_pindex[i] >= self.pmshape[i]:
-                    # they are, so set current partition index to zero
-                    c_pindex[i] = 0
-                    # increase the one previous partition index by one
-                    c_pindex[i-1] += 1
-                    # +---------------+
-                    # | . | . | . | + |
-                    # +---------------+
-                    #   ^   ^   ^   |
-                    #   |   |   |   |
-                    #   ----+---+---+
-
-    cpdef _create_nc_partition(CFAVariable self, object nc_object):
+    cpdef createNCPartition(CFAVariable self, cfa_version="0.4", nc_parent=None):
         """Create the datastructure in a netCDF file for the netCDF partition
         used internally and in CFA-0.5 files."""
         # get the dimension definitions from the CFAVar
+        if cfa_version == "0.4":
+            # create Dataset in memory
+            self.nc_partition_group = netCDF4.Dataset(
+                "inmemory.nc", mode="w", diskless=True, persist=False,
+                memory=0
+            )
+        elif cfa_version == "0.5":
+            # create group in file
+            cfa_metagroup_name = "cfa_" + self.var_name
+            self.nc_partition_group = nc_parent.createGroup(cfa_metagroup_name)
+        else:
+            raise CFAError("Unsupported CFA version {}.".format(cfa_version))
+
+        # shortcut to partition group
+        ncp = self.nc_partition_group
         pm_dimensions = self.getPartitionMatrixDimensions()
         pm_shape = self.getPartitionMatrixShape()
         # need to create the dimensions
         for d in range(0, len(pm_dimensions)):
-            nc_object.createDimension(pm_dimensions[d], pm_shape[d])
+            ncp.createDimension(pm_dimensions[d], pm_shape[d])
         n_pm_dims = len(pm_shape)
         # create additional dimensions for location, shape etc.
         # in the partition matrix
-        nc_object.createDimension("X", n_pm_dims)
-        nc_object.createDimension("Y", 2)
+        ncp.createDimension("X", n_pm_dims)
+        ncp.createDimension("Y", 2)
         # create the cfa variables the partitions
         ### pm_shape
-        pm_shape_var = nc_object.createVariable(
+        pm_shape_var = ncp.createVariable(
             "pmshape", np.int32, dimensions = ("X",)
         )
         # pm_dimensions - just write as string
-        pm_dimensions_var = nc_object.createVariable(
+        pm_dimensions_var = ncp.createVariable(
             "pmdimensions", str
         )
         ### index
         index_dim_names = list(pm_dimensions)
         index_dim_names.append("X")
-        index_var = nc_object.createVariable(
+        index_var = ncp.createVariable(
             "index", np.int32, dimensions=index_dim_names
         )
         ### location
         location_dim_names = list(pm_dimensions)
         location_dim_names.extend(["X", "Y"])
-        location_var = nc_object.createVariable(
+        location_var = ncp.createVariable(
             "location", np.int32, dimensions=location_dim_names
         )
         ### ncvar (name of)
-        ncvar_var = nc_object.createVariable(
+        ncvar_var = ncp.createVariable(
             "ncvar", str, dimensions=pm_dimensions
         )
         ### filename
-        file_var = nc_object.createVariable(
+        file_var = ncp.createVariable(
             "file", str, dimensions=pm_dimensions
         )
         ### format
-        format_var = nc_object.createVariable(
+        format_var = ncp.createVariable(
             "format", str, dimensions=pm_dimensions
         )
         ### shape
         shape_dim_names = index_dim_names
-        shape_var = nc_object.createVariable(
+        shape_var = ncp.createVariable(
             "shape", np.int32, dimensions=shape_dim_names
         )
 
@@ -1131,11 +1099,7 @@ cdef class CFAVariable:
                 # containing the partition information.  This is to ensure the
                 # same code can be used for accessing partitions in CFA-0.4
                 # format and CFA-0.5 format
-                self.nc_partition_group = netCDF4.Dataset(
-                    "inmemory.nc", mode="w", diskless=True, persist=False,
-                    memory=0
-                )
-                self._create_nc_partition(self.nc_partition_group)
+                self.createNCPartition(cfa_version="0.4")
                 # get a shortcut to the partition group
                 ncp = self.nc_partition_group
                 for p in cfa_json["Partitions"]:
@@ -1186,9 +1150,12 @@ cdef class CFAVariable:
         # iterate over the indices
         it = np.nditer(ncp.variables["ncvar"],
                        flags=["multi_index", "refs_ok"])
-        # 
+        #
         for i in it:
             ncvar  = ncp.variables["ncvar"][it.multi_index]
+            # don't write out any undefinied partitions
+            if ncvar == "":
+                continue
             shape  = ncp.variables["shape"][it.multi_index]
             file   = ncp.variables["file"][it.multi_index]
             format = ncp.variables["format"][it.multi_index]
