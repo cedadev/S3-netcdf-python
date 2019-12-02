@@ -125,13 +125,19 @@ class s3Client(object):
             url_name = self._host_config['url']
             secret_key = self._host_config['secretKey']
             access_key = self._host_config['accessKey']
+            region = self._host_config.get('region')
+            secure = self._host_config.get('secure', False)
             self._url = self._s3_user_config["hosts"][self._host_name]["alias"]
         except:
             raise s3IOException("Error in config file " + self._s3_user_config["filename"])
 
         # attach the client to the object store and get the object
         try:
-            self._s3_client = Minio(url_name, access_key=access_key, secret_key=secret_key, secure=False)
+            self._s3_client = Minio(url_name,
+                                    access_key=access_key,
+                                    secret_key=secret_key,
+                                    region=region,
+                                    secure=secure)
         except BaseException:
             raise s3IOException("Error: " + url_name + " not found.")
 
