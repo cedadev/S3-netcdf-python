@@ -12,7 +12,7 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     )
 
     # create a group if this is a netCDF4 (or CFA4 equivalent) file
-    if format == "netCDF4" or format == "CFA4":
+    if format == "NETCDF4" or format == "CFA4":
         group = s3_ds.createGroup("test_group")
     # otherwise for netCDF3 files the group is the dataset
     else:
@@ -76,7 +76,7 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     # write a vector of data
     vec_dim = s3_ds.createDimension("vector", 128)
     vec_var = s3_ds.createVariable("vector", np.int32, ("vector",))
-    vec_var[:] = np.arange(0,128)
+    vec_var[:] = 12+np.arange(0,128)
     velocity = s3_ds.createVariable("velocity", np.float32, ("vector",))
 
 def get_file_path(path_stub, format, cfa_version=None):
@@ -89,7 +89,7 @@ def get_file_path(path_stub, format, cfa_version=None):
     file_name += ".nc"
     return file_name
 
-def test_s3Dataset_write(path_stub, format="netCDF4", cfa_version="0.4",
+def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
                          resolution_degrees=1.5):
     """Test writing out a s3Dataset, for one of the various permutations of:
         1. file format (netCDF3 or netCDF4)
@@ -102,17 +102,23 @@ def test_s3Dataset_write(path_stub, format="netCDF4", cfa_version="0.4",
     if DEBUG:
         print("Test writing {}".format(file_name))
     # open the dataset
-    ds = s3Dataset(file_name, format=format, mode='w', cfa_version=cfa_version)
+    ds = s3Dataset(file_name, format=format, mode='w', cfa_version=cfa_version,
+                   diskless=False, persist=False)
     # construct the shape:
-    shape=[365, 60, 180.0/resolution_degrees, 360.0/resolution_degrees]
+    shape=[365, 60, 180.0/resolution_degrees+1, 360.0/resolution_degrees]
     # create the data inside the dataset
     create_test_dataset(ds, format, cfa_version, shape)
     if DEBUG:
         print(ds.groups["test_group"].variables["tmp"])
         print(ds.variables["scl"])
 
-    tmp_var = ds.groups["test_group"].variables["tmp"]
-    tmp_var[0,0,0,0] = 25.0
+    if format == "CFA4" or format == "NETCDF4":
+        tmp_var = ds.groups["test_group"].variables["tmp"]
+    else:
+        tmp_var = ds.variables["tmp"]
+    tmp_var[0:10,0,0,0] = 25.0
+    tmp_var[0:10,0,0,1] = 12.5
+    tmp_var[190,0,0,0] = np.array([50.0], 'f')
     vel_var = ds.variables["velocity"]
     vel_var[0] = 10.0
     ds.close()

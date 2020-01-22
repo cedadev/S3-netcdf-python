@@ -611,6 +611,7 @@ cdef class CFAVariable:
         | partitions     object                          |
         +------------------------------------------------+
         | string         getName()                       |
+        | CFAGroup       getGroup()                      |
         | np.dtype       getType()                       |
         | dict<mixed>    getMetadata()                   |
         | list<string>   getDimensions()                 |
@@ -699,8 +700,8 @@ cdef class CFAVariable:
                   slice: array: the index into the subarray file
                   position: array: the position in the master array file
         """
-        cdef np.ndarray source_slice          # slice in the source partition
-        cdef np.ndarray target_slice          # slice in the target master array
+        cdef list source_slice          # slice in the source partition
+        cdef list target_slice          # slice in the target master array
         cdef list return_list
         cdef np.ndarray slices                # don't use slices, use nx3
         cdef list slice_range                 # dimesional numpy arrays
@@ -793,37 +794,39 @@ cdef class CFAVariable:
             partition = self.getPartition(i)
             # create the default source slice, this is the shape of the subarray
             ndims = len(partition.shape)
-            source_slice = np.empty([ndims,3], np.int32)
-            target_slice = np.empty([ndims,3], np.int32)
+            source_slice = []
+            target_slice = []
             # loop over all the slice dimensions - these should be equal between
             # the source_slice and target_slice
             for d in range(0, ndims):
                 # create the target slice, this is the location of the partition
                 # in the master array - we will modify both of these
-                target_slice[d] = [partition.location[d,0],
-                                   partition.location[d,1],
-                                   1]
-                source_slice[d] = [0,
-                                   partition.shape[d],
-                                   1]
+                target = [partition.location[d,0],
+                          partition.location[d,1],
+                          1]
+                source = [0,
+                          partition.shape[d],
+                          1]
                 # rejig the target and source slices based on the input slices
-                if slices[d,1] < target_slice[d,1]:
-                    source_slice[d,1] -= target_slice[d,1] - slices[d,1]
-                    target_slice[d,1] = slices[d,1]
+                if slices[d,1] < target[1]:
+                    source[1] -= target[1] - slices[d,1]
+                    target[1] = slices[d,1]
                 # adjust the target start and end for the sub slice
-                target_slice[d,0] -= slices[d,0]
-                target_slice[d,1] -= slices[d,0]
+                target[0] -= slices[d,0]
+                target[1] -= slices[d,0]
                 # check if the slice started in the location
-                if target_slice[d,0] < 0:
+                if target[0] < 0:
                     # source slice start is absolute value of target slice
-                    source_slice[d,0] = -1 * target_slice[d,0]
+                    source[0] = -1 * target[0]
                     # target start is 0
-                    target_slice[d,0] = 0
+                    target[0] = 0
+                source_slice.append(slice(source[0], source[1], source[2]))
+                target_slice.append(slice(target[0], target[1], target[2]))
 
             # append in order: filename, varname, source_slice, target_slice
             return_list.append(return_type(partition = partition,
-                                           source = source_slice,
-                                           target = target_slice)
+                                           source = tuple(source_slice),
+                                           target = tuple(target_slice))
                               )
         return return_list
 
@@ -860,7 +863,7 @@ cdef class CFAVariable:
                               for d in self.getDimensions()]
         return self._shape
 
-    cpdef getBaseFilename(CFAVariable self):
+    cpdef object getBaseFilename(CFAVariable self):
         """Create the file name path that is common between all subarray files"""
         # create the base filename
         file_path = self.getGroup().getDataset().getName()
@@ -878,7 +881,7 @@ cdef class CFAVariable:
 
         return base_filename
 
-    cpdef partitionIsDefined(CFAVariable self, index):
+    cpdef object partitionIsDefined(CFAVariable self, index):
         """Return whether a partition is defined or not - i.e. has it been
         written to yet."""
         filename = self.nc_partition_group.variables["file"][index]
@@ -1236,21 +1239,24 @@ cdef class CFADimension:
         | dim_name         string                        |
         | dim_len          int                           |
         | metadata         dict<mixed>                   |
-        | type             np.dtype                      |
         | axis_type        string                        |
+        | np.dtype         nc_dtype                      |
         +------------------------------------------------+
         | dict<mixed>      dump()                        |
         | string           getName()                     |
         | dict<mixed>      getMetadata()                 |
         | int              getLen()                      |
         | string           getAxisType()                 |
+        | void             setType(np.dtype)             |
+        | np.dtype         getType()                     |
         +------------------------------------------------+
     """
 
-    cdef public basestring dim_name
+    cdef basestring dim_name
     cdef int dim_len
     cdef public dict metadata
-    cdef public basestring axis_type
+    cdef basestring axis_type
+    cdef np.dtype nc_dtype
 
     def __init__(CFADimension self,
                  basestring dim_name="",
@@ -1287,6 +1293,14 @@ cdef class CFADimension:
         for k in self.metadata:
             output_dump[k] = self.metadata[k]
         return output_dump
+
+    cpdef np.dtype getType(CFADimension self):
+        """Return the type of the dimension."""
+        return self.nc_dtype
+
+    cpdef setType(CFADimension self, np.dtype dtype):
+        """Set the type of the dimension."""
+        self.nc_dtype = dtype
 
     cpdef basestring getName(CFADimension self):
         """Return the name of the dimension."""

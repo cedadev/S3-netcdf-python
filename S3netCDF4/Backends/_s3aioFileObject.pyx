@@ -260,8 +260,8 @@ class s3aioFileObject(object):
                 data = await body.read()
             # multipart download version
             else:
-                """Use range get to split up a file into the MAXIMUM_PART_SIZE and
-                download each part asynchronously."""
+                """Use range get to split up a file into the MAXIMUM_PART_SIZE
+                and download each part asynchronously."""
                 # calculate the number of necessary parts
                 n_parts = int(range_size / self._part_size + 1)
                 # don't go above the maximum number downloadable
@@ -312,7 +312,7 @@ class s3aioFileObject(object):
             1.  The size is exactly the same size as the MAXIMUM_PART_SIZE
             2.  The size is greater than the MAXIMUM_PART_SIZE
             3.  The size is multiple times greater than the MAX_UPLOAD_SIZE and
-                requires spolitting into smaller chunks
+                requires splitting into smaller chunks
         """
         # check to see if bucket needs to be created
         if self._create_bucket:

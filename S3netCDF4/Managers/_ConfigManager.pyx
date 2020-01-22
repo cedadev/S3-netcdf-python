@@ -95,7 +95,7 @@ class Config(object):
             fp.close()
         except IOError:
             raise IOException(
-                "User config file does not exist with path: ".format(
+                "User config file does not exist with path: {}".format(
                     sl_config_path
                 )
             )

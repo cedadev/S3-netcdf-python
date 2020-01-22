@@ -105,12 +105,14 @@ class CFA_netCDFParser(CFA_Parser):
                 cfa_grp = cfa_dataset.getGroup(grp)
                 # create the s3Group with links to the cfa group and nc_grp
                 s3_dataset._s3_groups[grp] = s3Group(
-                                                cfa_grp=cfa_grp,
-                                                nc_grp=nc_grp
-                                            )
+                    cfa_grp=cfa_grp,
+                    nc_grp=nc_grp
+                )
                 # create the vars and dims in the group
                 self.__create_s3vars_and_dims(
-                    s3_dataset._s3_groups[grp], nc_grp, cfa_grp
+                    s3_dataset._s3_groups[grp],
+                    nc_grp,
+                    cfa_grp
                 )
 
             else:
@@ -156,12 +158,9 @@ class CFA_netCDFParser(CFA_Parser):
                           cfa_version=cfa_version
                       )
         # now loop over all the groups, and add a CFAGroup to each dataset, then
-        # the variables and dimensions contained in that group
-        # recast the groups from netCDF._netCDF4.Group to S3netCDF4._s3netCDF4.s3Dataset
+        # the CFAVariables and CFADimensions contained in that group
         output_groups = {}
         for group_name in nc_groups:
-            # each group will recast its dimensions and variables from the
-            # netCDF4 variants to the S3netCDF4 variants
             nc_group = nc_groups[group_name]
             nc_group_md = {a:nc_group.getncattr(a) for a in nc_group.ncattrs()}
             cfa_group = cfa_dataset.createGroup(group_name, nc_group_md)
@@ -187,12 +186,12 @@ class CFA_netCDFParser(CFA_Parser):
                                     metadata=nc_var_md
                                 )
                     if cfa_version == "0.4":
-                        # this parses from the 0.4 version - i.e all the metadata
-                        # is stored in the netCDF attributes
+                        # this parses from the 0.4 version - i.e all the
+                        # metadata is stored in the netCDF attributes
                         cfa_var.parse(nc_var_md)
                     elif cfa_version == "0.5":
-                        # this parses from the 0.5 version - i.e. all the metadata
-                        # is stored in a variable in a group
+                        # this parses from the 0.5 version - i.e. all the
+                        # metadata is stored in a variable in a group
                         cfa_var.load(nc_var_md, nc_group)
                     else:
                         raise CFAError(

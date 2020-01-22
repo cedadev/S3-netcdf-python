@@ -24,6 +24,10 @@ from S3netCDF4.Managers._ConfigManager import Config
 from S3netCDF4._Exceptions import *
 from S3netCDF4.Backends import *
 
+def generate_key(url):
+    """Generate a key for the file manager to store a OpenFileRecord"""
+    return sha1(url.encode("utf-8")).hexdigest()
+
 class FileObject(object):
     """Class to return a file object, which contains a file object handle,
     returned by the FileManager class below.
@@ -124,19 +128,25 @@ class OpenFileRecord(object):
     """Potential open states"""
     OPEN_NEW_IN_MEMORY = 0
     OPEN_EXISTS_IN_MEMORY = 1
-    OPEN_NEW_ON_STORAGE = 2
-    OPEN_EXISTS_ON_STORAGE = 3
-    OPEN_NEW_ON_DISK = 4
-    OPEN_EXISTS_ON_DISK = 5
+    KNOWN_EXISTS_ON_STORAGE = 2
+    OPEN_NEW_ON_DISK = 3
+    OPEN_EXISTS_ON_DISK = 4
 
     open_state_mapping = {
         OPEN_NEW_IN_MEMORY : "OPEN_NEW_IN_MEMORY",
         OPEN_EXISTS_IN_MEMORY : "OPEN_EXISTS_IN_MEMORY",
-        OPEN_NEW_ON_STORAGE : "OPEN_NEW_ON_STORAGE",
-        OPEN_EXISTS_ON_STORAGE : "OPEN_EXISTS_ON_STORAGE",
+        KNOWN_EXISTS_ON_STORAGE : "KNOWN_EXISTS_ON_STORAGE",
         OPEN_NEW_ON_DISK : "OPEN_NEW_ON_DISK",
         OPEN_EXISTS_ON_DISK : "OPEN_EXISTS_ON_DISK"
     }
+
+    @property
+    def data_object(self):
+        return self._data_object
+
+    @data_object.setter
+    def data_object(self, val):
+        self._data_object = val
 
     def __init__(self, url, size, file_object, last_accessed, open_state):
         """Just load all the values in from the constructor."""
@@ -145,6 +155,7 @@ class OpenFileRecord(object):
         self.file_object = file_object
         self.last_accessed = last_accessed
         self.open_state = open_state
+        self._data_object = None
 
     def __repr__(self):
         """String representation of the OpenFileRecord."""
@@ -155,6 +166,9 @@ class OpenFileRecord(object):
             OpenFileRecord.open_state_mapping[self.open_state]
         )
         return repstr
+
+    def close(self):
+        self._data_object.close()
 
 class FileManager(object):
     """Class to return a file object handle when supplied with a URL / URI /
@@ -167,7 +181,11 @@ class FileManager(object):
     def __init__(self):
         self._open_files = {}
 
-    def open(self, url, mode="r"):
+    @property
+    def files(self):
+        return self._open_files
+
+    def _open(self, url, mode="r"):
         """Open a file on one of the supported backends and return a
         corresponding fileobject to it."""
         # create a file object to store information about the file handle and
@@ -264,7 +282,7 @@ class FileManager(object):
             _fo._async_system = False
         return _fo
 
-    def request_file(self, url, size, mode="r"):
+    def request_file(self, url, size=0, mode="r"):
         """Request a file, and return a file object to it.
         1. Files returned from this function are managed.
         2. They are stored in a dictionary with their file object, size, last
@@ -285,7 +303,7 @@ class FileManager(object):
            4b. If it doesn't exist it is created.
         """
         # generate the key from hashing the url
-        key = sha1(url.encode("utf-8")).hexdigest()
+        key = generate_key(url)
         if key in self._open_files:
             # update the open state
             if self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
@@ -300,10 +318,10 @@ class FileManager(object):
             # memory available
             available_memory = virtual_memory().available
             if size > available_memory:
-                print("!")
+                raise IOException("Out of memory")
             else:
                 # get a file object to the (potentially) remote system
-                fo = self.open(url, mode)
+                fo = self._open(url, mode)
                 # determine if this filesystem is remote or locally attached disk
                 if fo.remote_system:
                     # it's remote so create in memory
@@ -324,4 +342,8 @@ class FileManager(object):
     def free_file(self, url):
         """Free a file from the file manager after it was opened with request_file
         """
-        pass
+        # generate the key from hashing the url
+        key = generate_key(url)
+        if key in self._open_files:
+            # update the open state
+            pass

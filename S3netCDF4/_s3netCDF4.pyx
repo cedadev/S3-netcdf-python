@@ -115,7 +115,8 @@ class s3Variable(object):
         self._cfa_dim = cfa_dim
         self._nc_var = nc_var
         # need a file manager for the sub array files
-        self._file_manager = FileManager()
+        # this will be assigned to the parent dataset in create
+        self._file_manager = None
         self.parent = None
 
     def create(self, parent, name, datatype, dimensions=(), zlib=False,
@@ -148,6 +149,7 @@ class s3Variable(object):
                 nc_dimensions = (name,)
                 # get a reference to the already created cfa_dim
                 self._cfa_dim = parent._cfa_grp.getDimension(name)
+                self._cfa_dim.setType(np.dtype(datatype))
             else:
                 nc_dimensions = list([])
                 # only create the cfa variable for field variables
@@ -164,6 +166,8 @@ class s3Variable(object):
             nc_parent = parent._nc_grp
             # get the netCDF dataset
             ncd = s3_dataset._nc_dataset
+            # assign the FileManager
+            self._file_manager = parent.parent._file_manager
 
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
@@ -178,6 +182,7 @@ class s3Variable(object):
                 nc_dimensions = (name,)
                 # get a reference to the already created cfa_dim
                 self._cfa_dim = cfa_root_group.getDimension(name)
+                self._cfa_dim.setType(np.dtype(datatype))
             else:
                 nc_dimensions = list([])
                 # create the CFA var for field variables only
@@ -196,6 +201,8 @@ class s3Variable(object):
             nc_parent = s3_dataset._nc_dataset
             # get the netCDF dataset
             ncd = s3_dataset._nc_dataset
+            self._file_manager = parent._file_manager
+
         else:
             self._cfa_var = None
             nc_dimensions = dimensions
@@ -222,7 +229,9 @@ class s3Variable(object):
                     cfa_version, nc_parent
                 )
             else:
-                raise CFAError("Unsupported CFA version {}.".format(cfa_version))
+                raise CFAError(
+                    "Unsupported CFA version {}.".format(cfa_version)
+                )
 
         # Initialise the base class
         self._nc_var = nc_parent.createVariable(
@@ -362,12 +371,97 @@ class s3Variable(object):
         # get the parent dataset to get the information used in its creation,
         # so that it can be mirrored in the creation of the sub-array files
         if hasattr(self.parent, "_nc_grp"):
-            ncd = self.parent.parent._nc_dataset
+            s3d = self.parent.parent
         else:
-            ncd = self.parent._nc_dataset
-        nc_dataset = netCDF4.Dataset(
-            index.partition.file, mode=mode, format=ncd.data_model
+            s3d = self.parent
+
+        # if the subarray file is to be created entirely in memory then  it will
+        # be diskless, otherwise take the parameters from the user supplied
+        # creation parameters
+        if in_memory:
+            diskless = True
+            memory = 0
+        else:
+            diskless = s3d._creation_params["diskless"]
+            memory = s3d._creation_params["memory"]
+
+        # create the subarray dataset with the creation parameters from the
+        # parameters determined above and the creation params
+        nc_sa_dataset = netCDF4.Dataset(
+            index.partition.file,
+            mode=mode,
+            format=s3d._creation_params["format"],
+            clobber=s3d._creation_params["clobber"],
+            diskless=diskless,
+            persist=s3d._creation_params["persist"],
+            keepweakref=s3d._creation_params["keepweakref"],
+            memory=memory,
+            parallel=False
         )
+        # create the group if this variable is a member of a group
+        cfa_grp = self._cfa_var.getGroup()
+        if (cfa_grp is not None and cfa_grp.getName() is not "root"):
+            nc_sa_grp = nc_sa_dataset.createGroup(cfa_grp.getName())
+            # set the metadata
+            nc_sa_grp.setncatts(cfa_grp.getMetadata())
+            nc_grp = self.parent._nc_grp
+        else:
+            # otherwise just assign to the dataset to create the dimensions
+            # and variables
+            nc_sa_grp = nc_sa_dataset
+            nc_grp = self.parent._nc_dataset
+
+        # nc_grp is the input group (from the parent master array file)
+        # nc_sa_grp is the output group (in the subarray file)
+        # create the dimensions - however the size of the dimension is the size
+        # of the subarray
+        d = 0
+        for dim_name in self._cfa_var.getDimensions():
+            # it is safe to use an integer to iterate the partition.shape
+            # array as nc_grp.dimensions is an OrderedDict
+            nc_sa_grp.createDimension(dim_name, index.partition.shape[d])
+            d += 1
+
+        # write the dimension variables
+        # getDimenions() might return an empty list - this is fine for scalars,
+        # as it will just skip over the code block
+        d = 0
+        for dim_name in self._cfa_var.getDimensions():
+            if cfa_grp is not None:
+                cfa_dim = cfa_grp.getDimension(dim_name)
+                dtype = cfa_dim.getType()
+                nc_sa_dim_var = nc_sa_grp.createVariable(
+                    dim_name,
+                    dtype,
+                    (dim_name,)
+                )
+                # add the metadata
+                nc_sa_dim_var.setncatts(cfa_dim.getMetadata())
+
+                # add the dimension variable data - i.e. the domain
+                # this is a subslice of the dimension variable from same named
+                # variable in the master array dataset / group
+
+                # +1 is neccessary on final partition location, as CFA indexing
+                # ranges from 0 to the last element in the array, as opposed to
+                # python using last element + 1
+                nc_sa_dim_var[:] = (nc_grp.variables[dim_name][
+                    index.partition.location[d][0]:index.partition.location[d][1]+1
+                ])
+                d += 1
+
+        # create the field variable
+        nc_sa_fld_var = nc_sa_grp.createVariable(
+                            self._cfa_var.getName(),
+                            self._cfa_var.getType(),
+                            self._cfa_var.getDimensions()
+                        )
+        # set the metadata
+        nc_sa_fld_var.setncatts(self._cfa_var.getMetadata())
+
+        # finished creating the file - can now write some data into it
+        # this will be done in __setitem__ but we need the nc_var to do it
+        return nc_sa_dataset
 
     def __setitem__(self, elem, data):
         """Override the netCDF4.Variable __setitem__ method to assign data to
@@ -392,22 +486,46 @@ class s3Variable(object):
                 if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
                     # create a netCDF file in memory if it has not been created
                     # previously
-                    self.__create_subarray_ncfile(
-                        index, in_memory = True, mode="w"
+                    nc_sa_dataset = self.__create_subarray_ncfile(
+                        index, in_memory=True, mode="w"
                     )
+                    # attach to the request_object (OpenFileRecord)
+                    request_object.data_object = nc_sa_dataset
                     # write the partition information to the master array var
                     self._cfa_var.writePartition(index.partition)
 
                 elif request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
-                    self.__create_subarray_ncfile(
-                        index, in_memory = False, mode="w"
+                    nc_sa_dataset = self.__create_subarray_ncfile(
+                        index, in_memory=False, mode="w"
                     )
+                    request_object.data_object = nc_sa_dataset
                     # write the partition information to the master array
                     self._cfa_var.writePartition(index.partition)
 
-                # # if it has been created before then use the previously created
-                # # file
-                # elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
+                # if it has been created before then use the previously created
+                # file
+                elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
+                    # get the already opened dataset from the request_object
+                    # this will be a Dataset in memory
+                    nc_sa_dataset = request_object.data_object
+
+                elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
+                    # get the already opened dataset from the request_object
+                    # this will be a Dataset on disk
+                    nc_sa_dataset = request_object.data_object
+
+                # get the group if this variable is a member of a group
+                cfa_grp = self._cfa_var.getGroup()
+                if (cfa_grp is not None and cfa_grp.getName() is not "root"):
+                    nc_sa_grp = nc_sa_dataset[cfa_grp.getName()]
+                else:
+                    # not a member of a group so the group is the Dataset
+                    nc_sa_grp = nc_sa_dataset
+
+                # get the variable from the group
+                nc_sa_fld_var = nc_sa_grp[self._cfa_var.getName()]
+                # set the data using the slice from the partition
+                nc_sa_fld_var[index.source] = data
         else:
             self._nc_var.__setitem__(elem, data)
 
@@ -427,7 +545,6 @@ class s3Variable(object):
                 # when the file is streamed into memory, the whole file is read
                 # in - i.e. it is opened in memory by netCDF.
                 # We need to reserve the full amount of space
-                print(self._cfa_var.partitionIsDefined(i.partition.index))
                 size = np.prod(i.partition.shape)
                 # request_object = self._file_manager.request_file(
                 #                     i.file, size, mode="r"
@@ -475,8 +592,13 @@ class s3Group(object):
                 "Dimension name: {} already exists.".format(dimname)
             )
         self._s3_dimensions[dimname] = s3Dimension()
-        self._s3_dimensions[dimname].create(self, dimname, size=size,
-                                         axis_type=axis_type, metadata=metadata)
+        self._s3_dimensions[dimname].create(
+            self,
+            dimname,
+            size=size,
+            axis_type=axis_type,
+            metadata=metadata
+        )
         return self._s3_dimensions[dimname]
 
     def renameDimension(self, oldname, newname):
@@ -496,21 +618,23 @@ class s3Group(object):
         """
         self._s3_variables[varname] = s3Variable()
         self._s3_variables[varname].create(
-                                       self, varname, datatype,
-                                       dimensions=dimensions,
-                                       zlib=zlib,
-                                       complevel=complevel,
-                                       shuffle=shuffle,
-                                       fletcher32=fletcher32,
-                                       contiguous=contiguous,
-                                       chunksizes=chunksizes,
-                                       endian=endian,
-                                       least_significant_digit=least_significant_digit,
-                                       fill_value=fill_value,
-                                       chunk_cache=chunk_cache,
-                                       subarray_shape=subarray_shape,
-                                       max_subarray_size=max_subarray_size
-                                    )
+            self,
+            varname,
+            datatype,
+            dimensions=dimensions,
+            zlib=zlib,
+            complevel=complevel,
+            shuffle=shuffle,
+            fletcher32=fletcher32,
+            contiguous=contiguous,
+            chunksizes=chunksizes,
+            endian=endian,
+            least_significant_digit=least_significant_digit,
+            fill_value=fill_value,
+            chunk_cache=chunk_cache,
+            subarray_shape=subarray_shape,
+            max_subarray_size=max_subarray_size
+        )
         return self._s3_variables[varname]
 
     def renameVariable(self, oldname, newname):
@@ -624,14 +748,14 @@ class s3Dataset(object):
        netCDF files to an object store accessed via an AWS S3 HTTP API.
     """
 
-    _private_atts = ['file_object', '_file_object', '_file_manager', '_mode',
-                     '_cfa_dataset', '_nc_dataset',
+    _private_atts = ['file_object', '_managed_object', '_file_manager', '_mode',
+                     '_cfa_dataset', '_nc_dataset', '_creation_params',
                      '_s3_groups', '_s3_dimensions', '_s3_variables'
                     ]
 
     @property
     def file_object(self):
-        return self._file_object
+        return self._file_object.file_object
 
     def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                  diskless=False, persist=False, keepweakref=False, memory=None,
@@ -657,6 +781,18 @@ class s3Dataset(object):
         if 'b' not in mode:
             fh_mode = mode + 'b'
 
+        # record the parameters passed in so that we can pass these on to the
+        # subarray files
+        self._creation_params = {
+            "mode"     : mode,
+            "clobber"  : clobber,
+            "format"   : format,
+            "diskless" : diskless,
+            "persist"  : persist,
+            "keepweakref" : keepweakref,
+            "memory"   : memory,
+        }
+
         # set the group to be an empty dictionary.  There will always be one
         # group - the root group, this will be created later
         self._s3_groups = {}
@@ -665,7 +801,9 @@ class s3Dataset(object):
 
         # create the file object, this controls access to the various
         # file backends that are supported
-        self._file_object = self._file_manager.open(filename, mode=fh_mode)
+        self._managed_object = self._file_manager.request_file(
+                                        filename, mode=fh_mode
+                                    )
 
         # set the file up for write mode
         if mode == 'w':
@@ -673,6 +811,7 @@ class s3Dataset(object):
             # to CFA4 for writing so as to distribute files across subarrays
             if format == 'CFA4' or format == 'DEFAULT':
                 file_type = 'NETCDF4'
+                self._creation_params["format"] = "NETCDF4"
                 self._cfa_dataset = CFADataset(
                     name=filename,
                     format='NETCDF4',
@@ -682,6 +821,7 @@ class s3Dataset(object):
                 self._cfa_dataset.createGroup("root")
             elif format == 'CFA3':
                 file_type = 'NETCDF3_CLASSIC'
+                self._creation_params["format"] = "NETCDF3_CLASSIC"
                 self._cfa_dataset = CFADataset(
                     name=filename,
                     format='NETCDF3_CLASSIC',
@@ -691,9 +831,10 @@ class s3Dataset(object):
                 self._cfa_dataset.createGroup("root")
             else:
                 file_type = format
+                self._creation_params["format"] = format
                 self._cfa_dataset = None
 
-            if self._file_object.remote_system:
+            if self._managed_object.file_object.remote_system:
                 # call the constructor of the netCDF4.Dataset class
                 self._nc_dataset = netCDF4.Dataset(
                     "inmemory.nc", mode=mode, clobber=clobber,
@@ -707,22 +848,19 @@ class s3Dataset(object):
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
-                # close the existing file hangle and set the file_object to be
-                # the netcdf dataset
-                self._file_object.close()
-                self._file_object._fh = self._nc_dataset
+            self._managed_object.data_object = self._nc_dataset
         # handle read-only mode
         elif mode == 'r':
             # get the header data
-            data = self._file_object.read_from(0, 6)
+            data = self._managed_object.file_object.read_from(0, 6)
             file_type, file_version = s3Dataset._interpret_netCDF_filetype(data)
             # check what the file type is a netCDF file or not
             if file_type == 'NOT_NETCDF':
                 raise IOError("File: {} is not a netCDF file".format(filename))
                 # read the file in, or create it
-            if self._file_object.remote_system:
+            if self._managed_object.file_object.remote_system:
                 # stream into memory
-                nc_bytes = self.file_object.read()
+                nc_bytes = self._managed_object.file_object.read()
                 # call the base constructor
                 self._nc_dataset = netCDF4.Dataset(
                     "inmemory.nc", mode=mode, clobber=clobber,
@@ -730,15 +868,13 @@ class s3Dataset(object):
                     keepweakref=keepweakref, memory=nc_bytes, **kwargs
                 )
             else:
-                # close the open file object
-                self._file_object.close()
+                # create the ncDataset
                 self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
-                # reassign the file handle
-                self._file_object._fh = self._nc_dataset
+                self._managed_object.data_object = self._nc_dataset
 
             # parse the CFA file if it is one
             parser = CFA_netCDFParser()
@@ -757,20 +893,28 @@ class s3Dataset(object):
             parser = CFA_netCDFParser()
             parser.write(self._cfa_dataset, self)
 
-        # call the base class close method
-        if self._file_object.remote_system:
-            nc_bytes = self._nc_dataset.close()
-            self._file_object.close(nc_bytes)
-        else:
-            self._file_object.close()
+        # Close and possibly upload any file in the FileManager
+        # This will be the Master Array File and any SubArray files
+        for file in self._file_manager.files:
+            # close the SubArray file and return the bytes
+            file_obj = self._file_manager.files[file]
+            # get the netCDF file from memory via the data_object member of
+            # OpenFileRecord
+            nc_bytes = file_obj.data_object.close()
+            file_obj.file_object.close(nc_bytes)
 
     def createDimension(self, dimname, size=None,
                         axis_type="U", metadata={}):
         """Create a dimension in the Dataset.  This just calls createDimension
         on the root group"""
         self._s3_dimensions[dimname] = s3Dimension()
-        self._s3_dimensions[dimname].create(self, dimname, size=size,
-                                         axis_type=axis_type, metadata=metadata)
+        self._s3_dimensions[dimname].create(
+            self,
+            dimname,
+            size=size,
+            axis_type=axis_type,
+            metadata=metadata
+        )
         return self._s3_dimensions[dimname]
 
     def renameDimension(self, oldname, newname):
@@ -796,21 +940,23 @@ class s3Dataset(object):
         """
         self._s3_variables[varname] = s3Variable()
         self._s3_variables[varname].create(
-                                       self, varname, datatype,
-                                       dimensions=dimensions,
-                                       zlib=zlib,
-                                       complevel=complevel,
-                                       shuffle=shuffle,
-                                       fletcher32=fletcher32,
-                                       contiguous=contiguous,
-                                       chunksizes=chunksizes,
-                                       endian=endian,
-                                       least_significant_digit=least_significant_digit,
-                                       fill_value=fill_value,
-                                       chunk_cache=chunk_cache,
-                                       subarray_shape=subarray_shape,
-                                       max_subarray_size=max_subarray_size
-                                    )
+            self,
+            varname,
+            datatype,
+            dimensions=dimensions,
+            zlib=zlib,
+            complevel=complevel,
+            shuffle=shuffle,
+            fletcher32=fletcher32,
+            contiguous=contiguous,
+            chunksizes=chunksizes,
+            endian=endian,
+            least_significant_digit=least_significant_digit,
+            fill_value=fill_value,
+            chunk_cache=chunk_cache,
+            subarray_shape=subarray_shape,
+            max_subarray_size=max_subarray_size
+        )
         return self._s3_variables[varname]
 
     def renameVariable(self, oldname, newname):
