@@ -1,24 +1,15 @@
 {
-	"version": "9",
-	"hosts": {
-		"{{ hostname0 }}": {
-		    "alias": "{{ host0_alias }}",
-			"url": "{{ host0_url }}",
-			"accessKey": "{{ host0_access_key }}",
-			"secretKey": "{{ host0_secret_key }}",
-			"backend": "{{ host0_backend }}",
-			"api": "S3v4"
-		},
-		"{{ hostname1 }}": {
-		    "alias": "{{ host1_alias }}",
-			"url": "{{ host1_url }}",
-			"accessKey": "{{ host1_access_key }}",
-			"secretKey": "{{ host1_secret_key }}",
-			"backend": "{{ host1_backend }}",
-			"api": "S3v4"
-		}
-	},
-	"backends": {
-		"s3": "s3FileObject"
-	}
+    "version": "9",
+    "hosts": {
+        "{{ hostname0 }}": {
+            "alias": "{{ host0_alias }}-o",
+            "url": "{{ host0_url }}",
+            "credentials": {
+                "accessKey": "{{ host0_access_key }}",
+                "secretKey": "{{ host0_secret_key }}"
+            },
+            "backend": "s3aioFileObject",
+            "api": "S3v4"
+        }
+    }
 }
