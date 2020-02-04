@@ -723,10 +723,10 @@ cdef class CFAVariable:
         for s in range(0, key_l):
             key_ts = type(key[s])
             if (key_ts in [int, np.int32, np.int64, np.int16, np.int8]):
-                slices[s,:] = [key[s], key[s], 1]
+                slices[s,:] = [key[s], key[s]+1, 1]
             elif key_ts is slice:
                 key_list = key[s].indices(shape[s])
-                slices[s,:] = [key_list[0], key_list[1]-1, key_list[2]]
+                slices[s,:] = [key_list[0], key_list[1], key_list[2]]
             else:
                 raise CFAVariableIndexError(
                     "Cannot index CFA array with type: {} from {}".format(
@@ -735,26 +735,37 @@ cdef class CFAVariable:
                 )
         # fill in any other part that is not specified
         for s in range(key_l, len(shape)):
-            slices[s] = [0, shape[s]-1, 1]
+            slices[s] = [0, shape[s], 1]
         # reset key_l as we have now filled the slices
         key_l = len(slices)
-        # check the ranges of the slices
+        # check the ranges of the slices and check for None
         for s in range(0, key_l):
-            if (slices[s,0] < 0 or slices[s,0] >= shape[s] or
-                slices[s,1] < 0 or slices[s,1] >= shape[s]):
+            if (slices[s,0] is None):
+                slices[s,0] = 0
+            if (slices[s,1] is None):
+                slices[s,1] = shape[s]
+            if (slices[s,0] < 0 or slices[s,0] > shape[s] or
+                slices[s,1] < 0 or slices[s,1] > shape[s]):
                 raise CFAVariableIndexError(
                     "Index into CFA array is out of range: {}".format(
                         in_key)
                     )
-
         # now we have the slices we can determine the partitions, using the
         # partition shape
-        i_per_part = shape / self.pmshape
+        i_per_part = (0.5+shape / self.pmshape).astype(np.int32)
         slice_range = []
         for s in range(0, key_l):
             # append the start / stop of the partition indices for each axis
-            slice_range.append(np.arange(int(slices[s,0] / i_per_part[s]),
-                                         int(slices[s,1] / i_per_part[s])+1))
+            start = int(slices[s,0] / i_per_part[s])
+            end = int(slices[s,1] / i_per_part[s])
+            # the code below ensures that the first index is always present,
+            # even when start == end
+            sl = [start]
+            start += 1
+            while start <= end:
+                sl.append(start)
+                start += 1
+            slice_range.append(sl)
         """Generate all possible combinations of the indices.
         indices should contain an iterator (list, array, etc) of iterators,
         where each of the sub-iterators contains the indices required for that
@@ -764,7 +775,6 @@ cdef class CFAVariable:
                          np.arange(6,9),  # y axis
                          np.arange(2,3)]  # x axis
         """
-
         index_list = []
         # build the first dimension
         for x in range(0, len(slice_range[0])):
@@ -823,7 +833,7 @@ cdef class CFAVariable:
                 source_slice.append(slice(source[0], source[1], source[2]))
                 target_slice.append(slice(target[0], target[1], target[2]))
 
-            # append in order: filename, varname, source_slice, target_slice
+            # append in order: partition, source_slice, target_slice
             return_list.append(return_type(partition = partition,
                                            source = tuple(source_slice),
                                            target = tuple(target_slice))
@@ -906,23 +916,26 @@ cdef class CFAVariable:
             subarray_shape = self.shape() / self.pmshape
             location = np.empty((len(self.pmshape), 2), 'i')
             # calculate the start and end locations
-            location[:,0] = (0.5+index[:] *
+            location[:,0] = (index[:] *
                             subarray_shape).astype('i')
-            # -1 here as CFA expects indices to be *inclusive*
-            location[:,1] = (0.5+index[:] *
+            location[:,1] = (index[:] *
                             subarray_shape +
-                            subarray_shape -1).astype('i')
+                            subarray_shape).astype('i')
             # get the integer subarray shape for this actual partition
-            # (add the 1 back on that was subtracted above)
-            actual_subarray_shape = (location[:,1] - location[:,0]+1)
+            actual_subarray_shape = (location[:,1] - location[:,0])
 
             # create the name of the subarray file with the numbering system
             # have to check if self.base_filename is None for an undefinied
             # partition
-            filename = (self.getBaseFilename() +
-                        ".".join([str(i) for i in index]) +
-                        ".nc"
-                       )
+            partition_filename = self.nc_partition_group.variables["file"][index]
+            if partition_filename == "":
+                filename = (self.getBaseFilename() +
+                                ".".join([str(i) for i in index]) +
+                                ".nc"
+                               )
+            else:
+                filename = partition_filename
+
             part = CFAPartition(
                 index = index,
                 location = location,

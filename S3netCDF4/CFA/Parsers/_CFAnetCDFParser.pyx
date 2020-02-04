@@ -60,8 +60,10 @@ class CFA_netCDFParser(CFA_Parser):
                 # create the s3Variable with links to the cfa variable and nc_var
                 s3_object._s3_variables[var] = s3Variable(
                                                     nc_var=nc_var,
-                                                    cfa_var=cfa_var
+                                                    cfa_var=cfa_var,
+                                                    parent=s3_object
                                                 )
+
             else:
                 s3_object._s3_variables[var] = nc_var
 
@@ -74,7 +76,8 @@ class CFA_netCDFParser(CFA_Parser):
                 # create the s3Dimension with links to the cfa dimension and nc_dim
                 s3_object._s3_dimensions[dim] = s3Dimension(
                                                     nc_dim=nc_dim,
-                                                    cfa_dim=cfa_dim
+                                                    cfa_dim=cfa_dim,
+                                                    parent=s3_object
                                                 )
             else:
                 s3_object._s3_dimensions[dim] = nc_dim
@@ -106,7 +109,8 @@ class CFA_netCDFParser(CFA_Parser):
                 # create the s3Group with links to the cfa group and nc_grp
                 s3_dataset._s3_groups[grp] = s3Group(
                     cfa_grp=cfa_grp,
-                    nc_grp=nc_grp
+                    nc_grp=nc_grp,
+                    parent=s3_dataset
                 )
                 # create the vars and dims in the group
                 self.__create_s3vars_and_dims(
@@ -119,7 +123,7 @@ class CFA_netCDFParser(CFA_Parser):
                 s3_dataset._s3_groups[grp] = nc_grp
 
 
-    def read(self, s3_dataset):
+    def read(self, s3_dataset, filename=""):
         """Parse an already open s3_dataset to build the _CFAClasses
         hierarchy.
 
@@ -152,7 +156,7 @@ class CFA_netCDFParser(CFA_Parser):
         nc_dataset_md = {a:nc_dataset.getncattr(a) for a in nc_dataset.ncattrs()}
         # create the CFADataset, with the metadata and format, and empty groups
         cfa_dataset = CFADataset(
-                          name="",
+                          name=filename,
                           format=nc_dataset.data_model,
                           metadata=nc_dataset_md,
                           cfa_version=cfa_version

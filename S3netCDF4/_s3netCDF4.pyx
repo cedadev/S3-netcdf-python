@@ -10,6 +10,7 @@ Updated: 13/05/2019
 """
 
 import numpy as np
+from psutil import virtual_memory
 
 # This module Duplicates classes and functions from the standard UniData netCDF4
 # implementation and overrides their functionality so as it enable S3 and CFA
@@ -29,12 +30,13 @@ class s3Dimension(object):
        files.
     """
     _private_atts = ["_cfa_dim", "_nc_dim"]
-    def __init__(self, cfa_dim=None, nc_dim=None):
+    def __init__(self, cfa_dim=None, nc_dim=None, parent=None):
         """Just initialise the dimension.  The variables will be loaded in by
         either the createDimension method(s) or the load function called from
         the parser."""
         self._cfa_dim = cfa_dim
         self._nc_dim = nc_dim
+        self.parent = parent
 
     def create(self, parent, name, size=None,
                axis_type="U", metadata={}, **kwargs):
@@ -108,16 +110,25 @@ class s3Variable(object):
         "_cfa_var", "_cfa_dim", "_nc_var", "_file_manager", "parent"
     ]
 
-    def __init__(self, cfa_var=None, cfa_dim=None, nc_var=None):
+    def __init__(self, cfa_var=None, cfa_dim=None, nc_var=None, parent=None):
         """Just initialise the class, any loading of the variables will be done
         by the parser, or the CreateVariable member of s3Group."""
         self._cfa_var = cfa_var
         self._cfa_dim = cfa_dim
         self._nc_var = nc_var
-        # need a file manager for the sub array files
-        # this will be assigned to the parent dataset in create
-        self._file_manager = None
-        self.parent = None
+        self.parent = parent
+
+    @property
+    def file_manager(self):
+        """Return the parent's (or parent's parent's) file manager"""
+        # assign the file manager
+        if hasattr(self.parent, "_cfa_grp"):
+            return self.parent.parent._file_manager
+        elif hasattr(self.parent, "_cfa_dataset"):
+            return self.parent._file_manager
+        else:
+            return None
+
 
     def create(self, parent, name, datatype, dimensions=(), zlib=False,
             complevel=4, shuffle=True, fletcher32=False, contiguous=False,
@@ -166,8 +177,6 @@ class s3Variable(object):
             nc_parent = parent._nc_grp
             # get the netCDF dataset
             ncd = s3_dataset._nc_dataset
-            # assign the FileManager
-            self._file_manager = parent.parent._file_manager
 
         # second check if this is a dataset, and create or get a "root" CFAgroup
         # if it is and add the CFAVariable to that group
@@ -201,8 +210,6 @@ class s3Variable(object):
             nc_parent = s3_dataset._nc_dataset
             # get the netCDF dataset
             ncd = s3_dataset._nc_dataset
-            self._file_manager = parent._file_manager
-
         else:
             self._cfa_var = None
             nc_dimensions = dimensions
@@ -442,11 +449,8 @@ class s3Variable(object):
                 # this is a subslice of the dimension variable from same named
                 # variable in the master array dataset / group
 
-                # +1 is neccessary on final partition location, as CFA indexing
-                # ranges from 0 to the last element in the array, as opposed to
-                # python using last element + 1
                 nc_sa_dim_var[:] = (nc_grp.variables[dim_name][
-                    index.partition.location[d][0]:index.partition.location[d][1]+1
+                    index.partition.location[d][0]:index.partition.location[d][1]
                 ])
                 d += 1
 
@@ -475,12 +479,12 @@ class s3Variable(object):
         if hasattr(self, "_cfa_var") and self._cfa_var:
             # get the above details from the CFA variable, details are returned as:
             # (filename, varname, source_slice, target_slice)
-            index_list = self._cfa_var.__getitem__(elem)
+            index_list = self._cfa_var[elem]
             for index in index_list:
                 size = np.prod(index.partition.shape)
                 # check with the filemanager what state the file is in, and
                 # whether we should open it
-                request_object = self._file_manager.request_file(
+                request_object = self.file_manager.request_file(
                                     index.partition.file, size, mode="w"
                                 )
                 if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
@@ -538,19 +542,85 @@ class s3Variable(object):
             3. The slice in the output array to write to
         """
         if hasattr(self, "_cfa_var") and self._cfa_var:
-            # get the above details from the CFA variable, details are returned as:
-            # (filename, varname, source_slice, target_slice)
-            index_list = self._cfa_var.__getitem__(elem)
-            for i in index_list:
+            # get parent s3Dataset for the creation parameters
+            if hasattr(self.parent, "_nc_grp"):
+                s3d = self.parent.parent
+            else:
+                s3d = self.parent
+
+            # get the details from the CFA variable, details are returned as:
+            # list of (CFAPartition, source_slice, target_slice)
+            index_list = self._cfa_var[elem]
+            # create the target array
+            target_array = self.file_manager.request_array(
+                index_list, self._cfa_var.getType(), self._cfa_var.getBaseFilename()
+            )
+
+            for index in index_list:
                 # when the file is streamed into memory, the whole file is read
                 # in - i.e. it is opened in memory by netCDF.
                 # We need to reserve the full amount of space
-                size = np.prod(i.partition.shape)
-                # request_object = self._file_manager.request_file(
-                #                     i.file, size, mode="r"
-                #                 )
+                size = np.prod(index.partition.shape)
+                request_object = self.file_manager.request_file(
+                                    index.partition.file, size, mode="r"
+                                )
+                # if the file does not exist, but is within the array domain
+                # (if it has reached this point then it is), then return the
+                # target array full of missing values
+                if (request_object.open_state == OpenFileRecord.DOES_NOT_EXIST):
+                    target_array[index.target] = self._nc_var._FillValue
+                else:
+                    # get the netCDF
+                    if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
+                        # read the netCDF file into memory
+                        nc_mem = request_object.file_object.read()
+                        nc_sa_dataset = netCDF4.Dataset(
+                            index.partition.file,
+                            mode="r",
+                            format=s3d._creation_params["format"],
+                            clobber=s3d._creation_params["clobber"],
+                            diskless=True,
+                            persist=s3d._creation_params["persist"],
+                            keepweakref=s3d._creation_params["keepweakref"],
+                            memory=nc_mem,
+                            parallel=False
+                        )
+                        # cache the data object
+                        request_object.data_object = nc_sa_dataset
+                    elif request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
+                        nc_sa_dataset = netCDF4.Dataset(
+                            index.partition.file,
+                            mode="r",
+                            format=s3d._creation_params["format"],
+                            clobber=s3d._creation_params["clobber"],
+                            diskless=s3d._creation_params["diskless"],
+                            persist=s3d._creation_params["persist"],
+                            keepweakref=s3d._creation_params["keepweakref"],
+                            memory=None,
+                            parallel=False
+                        )
+                        # cache the data object
+                        request_object.data_object = nc_sa_dataset
+                    elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
+                        nc_sa_dataset = request_object.data_object
+                    elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
+                        nc_sa_dataset = request_object.data_object
+
+                    # get the group if this variable is a member of a group
+                    cfa_grp = self._cfa_var.getGroup()
+                    if (cfa_grp is not None and cfa_grp.getName() is not "root"):
+                        nc_sa_grp = nc_sa_dataset[cfa_grp.getName()]
+                    else:
+                        # not a member of a group so the group is the Dataset
+                        nc_sa_grp = nc_sa_dataset
+
+                    # get the variable from the group
+                    nc_sa_fld_var = nc_sa_grp[self._cfa_var.getName()]
+                    # set the data using the slice from the partition
+                    target_array[index.target] = nc_sa_fld_var[index.source]
+            return target_array
         else:
-            return self._nc_var.__getitem__(elem)
+            return self._nc_var[elem]
 
 class s3Group(object):
     """
@@ -879,7 +949,7 @@ class s3Dataset(object):
             # parse the CFA file if it is one
             parser = CFA_netCDFParser()
             if parser.is_file(self._nc_dataset):
-                parser.read(self)
+                parser.read(self, filename)
         else:
             # no other modes are supported
             raise APIException("Mode " + mode + " not supported.")
@@ -899,9 +969,12 @@ class s3Dataset(object):
             # close the SubArray file and return the bytes
             file_obj = self._file_manager.files[file]
             # get the netCDF file from memory via the data_object member of
-            # OpenFileRecord
-            nc_bytes = file_obj.data_object.close()
-            file_obj.file_object.close(nc_bytes)
+            # OpenFileRecord - only for write
+            if (self._mode == 'w'):
+                nc_bytes = file_obj.data_object.close()
+                file_obj.file_object.close(nc_bytes)
+            elif file_obj.file_object:
+                file_obj.file_object.close()
 
     def createDimension(self, dimname, size=None,
                         axis_type="U", metadata={}):

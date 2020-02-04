@@ -19,6 +19,7 @@ from psutil import virtual_memory
 from urllib.parse import urlparse
 from collections import namedtuple
 from hashlib import sha1
+import numpy as np
 
 from S3netCDF4.Managers._ConfigManager import Config
 from S3netCDF4._Exceptions import *
@@ -208,7 +209,7 @@ class FileManager(object):
                 # get the true path
                 true_path = FileManager._config["hosts"][alias]["url"] + url_o.path
                 credentials = FileManager._config["hosts"][alias]["credentials"]
-            except:
+            except KeyError:
                 raise APIException(
                     "Configuration file for {} is incomplete: {}.".format(
                         alias,
@@ -231,7 +232,7 @@ class FileManager(object):
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
                 _fo._fh = open(url, mode=mode)
-            except Exception as e:
+            except FileNotFoundError as e:
                 if alias != "://" and alias not in FileManager._config["hosts"]:
                     raise IOException(
                         "Host {} is not present in the user config file: {}".format(
@@ -240,10 +241,7 @@ class FileManager(object):
                         )
                     )
                 else:
-                    raise IOException(
-                        "URL or file {} is not found.".format(
-                            url)
-                    )
+                    raise e
         # determine whether this is a remote file system and / or an asyncio
         # file system
         # see if it's a remote dataset - if the file handle has a connect method
@@ -323,23 +321,78 @@ class FileManager(object):
                 raise IOException("Out of memory")
             else:
                 # get a file object to the (potentially) remote system
-                fo = self._open(url, mode)
-                # determine if this filesystem is remote or locally attached disk
-                if fo.remote_system:
-                    # it's remote so create in memory
-                    os = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                try:
+                    fo = self._open(url, mode)
+                except FileNotFoundError:
+                    # if we are reading and the file does not exist
+                    os = OpenFileRecord.DOES_NOT_EXIST
+                    self._open_files[key] = OpenFileRecord(
+                        url = url,
+                        size = 0,
+                        file_object = None,
+                        open_state = os,
+                        last_accessed = 0
+                    )
                 else:
-                    # it's local so create on the disk
-                    os = OpenFileRecord.OPEN_NEW_ON_DISK
-                # determine the open state on the file object
-                self._open_files[key] = OpenFileRecord(
-                    url  = url,
-                    size = size,
-                    file_object = fo,
-                    open_state = os,
-                    last_accessed = time.time()
-                )
+                    # determine if this filesystem is remote or locally attached disk
+                    if fo.remote_system:
+                        # it's remote so create in memory
+                        os = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                    else:
+                        # it's local so create on the disk
+                        os = OpenFileRecord.OPEN_NEW_ON_DISK
+                    # determine the open state on the file object
+                    self._open_files[key] = OpenFileRecord(
+                        url  = url,
+                        size = size,
+                        file_object = fo,
+                        open_state = os,
+                        last_accessed = time.time()
+                    )
         return self._open_files[key]
+
+    def request_array(self, index_list, dtype, base_name=""):
+        """Create an array based on the info detailed in elem and dtype.
+        index_list contains indices containing partitions"""
+        # get the number of dimensions from the partition location
+        n_dims = index_list[0].partition.location.shape[0]
+        # find the max / min bounds of the target array
+        target_array_min = np.zeros(n_dims, dtype=np.int32)
+        target_array_max = np.zeros(n_dims, dtype=np.int32)
+        for index in index_list:
+            for d in range(0, n_dims):
+                target_array_min[d] = np.minimum(
+                    target_array_min[d],
+                    index.target[d].start
+                )
+                target_array_max[d] = np.maximum(
+                    target_array_max[d],
+                    index.target[d].stop
+                )
+        # calculate the target shape as max - min
+        target_array_shape = target_array_max - target_array_min
+        # get the size and see if there is enough memory to create the array
+        target_array_size = np.prod(target_array_shape)
+        available_memory = virtual_memory().available
+        if target_array_size > 0:#available_memory:
+            # construct a name for the memory mapped array
+            mmap_name = os.path.join(
+                FileManager._config['cache_location'] + "/",
+                os.path.basename(base_name) +\
+                "_{}".format(int(np.random.uniform(0,1e8)))
+            )
+            target_array = np.memmap(
+                mmap_name,
+                shape=tuple(target_array_shape),
+                dtype=dtype,
+                mode="w+"
+            )
+        else:
+            target_array = np.empty(
+                target_array_shape,
+                dtype=dtype
+            )
+        return target_array
 
     def free_file(self, url):
         """Free a file from the file manager after it was opened with request_file

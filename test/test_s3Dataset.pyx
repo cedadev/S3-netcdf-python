@@ -66,6 +66,7 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     tmp_var.standard_name = "temperature"
     tmp_var.units = "degrees C"
     tmp_var.setncattr("long_name", "Surface temperature at 1m")
+    tmp_var._FillValue = np.float32(2e20)  # strict typing matches variable
 
     if DEBUG:
         print("\t . Writing data")
@@ -116,9 +117,11 @@ def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
         tmp_var = ds.groups["test_group"].variables["tmp"]
     else:
         tmp_var = ds.variables["tmp"]
-    tmp_var[0:10,0,0,0] = 25.0
-    tmp_var[0:10,0,0,1] = 12.5
-    tmp_var[190,0,0,0] = np.array([50.0], 'f')
+    #tmp_var[0:365,0,0:73,0:72] = 25.0
+    tmp_var[:,0,0,0] = 250.0
+    #tmp_var[0:365,0,36:,:] = 50.0
+    # tmp_var[0:10,0,0,0] = 12.5
+    # tmp_var[190,0,0,0] = np.array([50.0], 'f')
     vel_var = ds.variables["velocity"]
     vel_var[0] = 10.0
     ds.close()
@@ -145,7 +148,8 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print(dr.variables["scl"])
 
     tmp_var = group.variables["tmp"]
-    print(tmp_var[0,:,:,:])
+    print((tmp_var[230:,0,0,0].squeeze()))
+    # print(tmp_var[240:,0,0,0])
     dr.close()
     return True
 
