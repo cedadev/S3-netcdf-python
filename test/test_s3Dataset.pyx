@@ -118,7 +118,7 @@ def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
     else:
         tmp_var = ds.variables["tmp"]
     #tmp_var[0:365,0,0:73,0:72] = 25.0
-    tmp_var[:,0,0,0] = 250.0
+    tmp_var[:,:,:,:] = 250.0
     #tmp_var[0:365,0,36:,:] = 50.0
     # tmp_var[0:10,0,0,0] = 12.5
     # tmp_var[190,0,0,0] = np.array([50.0], 'f')

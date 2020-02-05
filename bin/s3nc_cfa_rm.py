@@ -91,11 +91,25 @@ def delete_s3_netcdf_file(master_array_fname, client_config, force_delete=False)
 if __name__ == "__main__":
 
     # set up and parse the arguments
-    parser = argparse.ArgumentParser(prog="s3_cfa_rm", formatter_class=argparse.RawTextHelpFormatter,
-                                     description="Delete a CFA-netCDF master-array file and all its sub-array files.")
-    parser.add_argument("file", action="store", default="",
-                        help="Path of the CFA-netCDF master-array to delete.  Path can either be on s3 storage or file system.")
-    parser.add_argument("-f", action="store_true", default=False, help="Force deletion without prompt")
+    parser = argparse.ArgumentParser(
+        prog="s3nc_cfa_rm",
+        formatter_class=argparse.RawTextHelpFormatter,
+        description=(
+            "Delete a CFA-netCDF master-array file and all its sub-array "
+            "files."
+        )
+    )
+    parser.add_argument(
+        "file", action="store", default="",
+        help=(
+            "Path of the CFA-netCDF master-array to delete.  Path can either "
+            "be on s3 storage or file system."
+        )
+    )
+    parser.add_argument(
+        "-f", action="store_true", default=False,
+        help="Force deletion without prompt"
+    )
 
     args = parser.parse_args()
 
