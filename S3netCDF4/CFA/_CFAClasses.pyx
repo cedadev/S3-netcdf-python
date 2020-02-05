@@ -422,11 +422,11 @@ cdef class CFAGroup:
                     )
                 # check each dimension is not longer than that in array
                 for i in range(0, len(subarray_shape)):
-                    if subarray_shape[i] > self.cfa_dims[self.cfa_dims.keys()[i]].getLen():
+                    if subarray_shape[i] > self.cfa_dims[dim_names[i]].getLen():
                         raise CFASubArrayError(
                             "Dimension in desired sub_array is larger than"
                             " dimension in array for dimension: {}".format(
-                                self.cfa_dims.keys()[i]
+                                dim_names[i]
                             )
                         )
 
@@ -752,7 +752,7 @@ cdef class CFAVariable:
                     )
         # now we have the slices we can determine the partitions, using the
         # partition shape
-        i_per_part = (1.0+shape / self.pmshape).astype(np.int32)
+        i_per_part = (shape / self.pmshape).astype(np.int32)
         slice_range = []
         for s in range(0, key_l):
             # append the start / stop of the partition indices for each axis
@@ -762,7 +762,7 @@ cdef class CFAVariable:
             # even when start == end
             sl = [start]
             start += 1
-            while start <= end:
+            while start < end:
                 sl.append(start)
                 start += 1
             slice_range.append(sl)
