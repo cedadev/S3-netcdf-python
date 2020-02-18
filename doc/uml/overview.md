@@ -2,6 +2,46 @@
 
 @startuml
 scale 0.75
+
+package "netCDF4-python" {
+    Group *-- Dimension
+    Dataset *-- Dimension
+    Group *-- Variable
+    Dataset *-- Variable
+
+    class Dataset{
+        dict<Group> groups
+        dict<Variable> variables
+        dict<Dimension> dimensions
+
+        void __init__()
+        Variable | Group
+
+    }
+
+    class Group{
+
+    }
+
+    class Dimension{
+        string _name
+        Group _grp
+
+        void __init__()
+        string name()
+        int size()
+        string __repr__()
+        string __unicode__()
+        int __len__()
+        Group group()
+        bool isUnlimited()
+    }
+
+    class Variable{
+
+    }
+}
+
 package "S3-netcdf-python" {
     package "CFA" {
         package "Parsers" {
@@ -183,20 +223,39 @@ package "S3-netcdf-python" {
 
         }
     }
+    package "S3netCDF4" {
+        s3Dimension *-- Dimension
+        s3Dimension *-- CFADimension
+        s3Variable *-- Variable
+        s3Variable *-- CFAVariable
+        s3Group *-- Group
+        s3Group *-- CFAGroup
+        s3Dataset *-- Dataset
+        s3Dataset *-- CFADataset
 
-    class s3Dimension{
+        class s3Dimension{
+            CFADimension _cfa_dim
+            Dimension _nc_dim
+            s3Group parent
 
-    }
+            void __init__(cfa_dim, nc_dim, parent)
+            void create(parent, name, size, axis_type, metadata, **kwargs)
+            string __getattr__(name)
+            void __setattr__(name, value)
+            int __len__()
+            int size()
+        }
 
-    class s3Variable{
-    }
+        class s3Variable{
+        }
 
-    class s3Group{
+        class s3Group{
 
-    }
+        }
 
-    class s3Dataset{
+        class s3Dataset{
 
+        }
     }
 }
 @enduml

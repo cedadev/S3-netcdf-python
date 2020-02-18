@@ -112,7 +112,7 @@ class s3Variable(object):
 
     def __init__(self, cfa_var=None, cfa_dim=None, nc_var=None, parent=None):
         """Just initialise the class, any loading of the variables will be done
-        by the parser, or the CreateVariable member of s3Group."""
+        in the create method."""
         self._cfa_var = cfa_var
         self._cfa_dim = cfa_dim
         self._nc_var = nc_var
@@ -818,14 +818,14 @@ class s3Dataset(object):
        netCDF files to an object store accessed via an AWS S3 HTTP API.
     """
 
-    _private_atts = ['file_object', '_managed_object', '_file_manager', '_mode',
-                     '_cfa_dataset', '_nc_dataset', '_creation_params',
+    _private_atts = ['_managed_object', '_file_manager',
+                     '_mode', '_cfa_dataset', '_nc_dataset', '_creation_params',
                      '_s3_groups', '_s3_dimensions', '_s3_variables'
                     ]
 
     @property
     def file_object(self):
-        return self._file_object.file_object
+        return self._managed_object.file_object
 
     def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                  diskless=False, persist=False, keepweakref=False, memory=None,
