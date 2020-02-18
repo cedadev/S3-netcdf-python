@@ -30,7 +30,7 @@ class CFA_netCDFParser(CFA_Parser):
             return False
         return True
 
-    def get_cfa_version(self, nc_dataset):
+    def __get_cfa_version(self, nc_dataset):
         """Parse the Conventions attribute to get the CFA version."""
         if not "Conventions" in nc_dataset.ncattrs():
             raise CFAError("Not a CFA file.")
@@ -143,7 +143,7 @@ class CFA_netCDFParser(CFA_Parser):
 
         # get the cfa version so we can interpret it as CFA-0.5 (in netCDF4
         # format) or CFA-0.4 (in netCDF3, CLASSIC or netCDF4 format)
-        cfa_version = self.get_cfa_version(nc_dataset)
+        cfa_version = self.__get_cfa_version(nc_dataset)
         # check to see if there are any groups and, if there is, create a CFAgroup
         # and add the nc_group to a dictionary of groups.  Start with the root
         # group pointing to the base Dataset
@@ -216,7 +216,7 @@ class CFA_netCDFParser(CFA_Parser):
 
         Args:
             cfa_dataset (CFADataset): the top class in the _CFAClasses hierarchy
-            nc_dataset (Dataset): the open dataset from the netcdf4-python
+            s3_dataset (Dataset): the open dataset from the netcdf4-python
             library.  Has to have been opened with 'w' flag.
 
         Returns:
@@ -240,11 +240,11 @@ class CFA_netCDFParser(CFA_Parser):
             # get the actual group
             cfa_group = cfa_dataset.getGroup(group)
             if (group == "root"):
-                nc_group = nc_dataset
                 s3_group = s3_dataset
+                nc_group = nc_dataset       # just a shortcut to the nc_group
             else:
                 s3_group = s3_dataset.groups[group]
-                nc_group = s3_group._nc_grp
+                nc_group = s3_group._nc_grp # shortcut
             # set the metadata for the group
             netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
 

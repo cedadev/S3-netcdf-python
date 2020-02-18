@@ -409,7 +409,7 @@ cdef class CFAGroup:
         if subarray_shape.size != 0:
             if len(dim_names) == 0:
                 raise CFASubArrayError(
-                    "Dimnensions of CFAVariable are not specified but the"
+                    "Dimensions of CFAVariable are not specified but the"
                     " subarray_shape is specified. This is not possible."
                     " Please specify the dimensions of the CFAVariable."
                 )
@@ -608,7 +608,8 @@ cdef class CFAVariable:
         | pmdimensions   list<string>                    |
         | pmshape        array<int>                      |
         | base           string                          |
-        | partitions     object                          |
+        | nc_partition_group  object                     |
+        | subarry_shape  np.ndarray                      |
         +------------------------------------------------+
         | string         getName()                       |
         | CFAGroup       getGroup()                      |
@@ -617,11 +618,22 @@ cdef class CFAVariable:
         | list<string>   getDimensions()                 |
         | string         getRole()                       |
         | np.ndarray     shape()                         |
+        | string         getBaseFilename()               |
+        | bool           partitionIsDefined()            |
+        | np.ndarray     getPartitionMatrixShape()       |
+        | list           getPartitionMatrixDimensions()  |
+        | CFAPartition   getPartition(array<int> index)  |
+        | array<CFAParti getPartitions()                 |
+        | void           writePartition(CFAPartition)    |
+        | void           writeInitialPartitionInfo()     |
+        | void           createNCPartition()             |
         | bool           parse(dict cfa_metadata)        |
         | dict<mixed>    dump()                          |
-        | CFAPartition   getPartition(array<int> index)  |
-        | array<CFAParti getPartitions(CFAVariable self) |
-        | None           setPartitions(object)           |
+        | void           load()                          |
+        +------------------------------------------------+
+        | __init__                                       |
+        | __repr__                                       |
+        | __getitem__                                    |
         +------------------------------------------------+
     """
 
@@ -891,17 +903,11 @@ cdef class CFAVariable:
 
         return base_filename
 
-    cpdef object partitionIsDefined(CFAVariable self, index):
-        """Return whether a partition is defined or not - i.e. has it been
-        written to yet."""
-        filename = self.nc_partition_group.variables["file"][index]
-        return filename != ""
-
     cpdef np.ndarray getPartitionMatrixShape(CFAVariable self):
         """Get the partition matrix shape."""
         return self.pmshape
 
-    cpdef list getPartitionMatrixDimensions(CFAVariable self):
+    cpdef getPartitionMatrixDimensions(CFAVariable self):
         """Get the names of the dimensions in the partition matrix"""
         return self.pmdimensions
 
@@ -968,12 +974,12 @@ cdef class CFAVariable:
         ncp.variables["shape"][index] = partition.shape
 
     cpdef writeInitialPartitionInfo(CFAVariable self, basestring cfa_version,
-                                    object nc_parent):
+                                    object nc_parent=None):
         """Set the partitions - this is a reference to a group contained in the
         netCDF master file (for CFA-0.5) or a dataset contained within memory
         (for CFA-0.4)"""
         # create the partition definition either in the file or in memory
-        self.createNCPartition(cfa_version, nc_parent)
+        self.__createNCPartition(cfa_version, nc_parent)
 
         # shortcut to the partition group
         ncp = self.nc_partition_group
@@ -986,11 +992,12 @@ cdef class CFAVariable:
         # partitions are dynamically created now, so no need to call
         # writePartition repeatedly
 
-    cpdef createNCPartition(CFAVariable self, cfa_version="0.4", nc_parent=None):
+    cpdef __createNCPartition(CFAVariable self, basestring cfa_version="0.4",
+                              object nc_parent=None):
         """Create the datastructure in a netCDF file for the netCDF partition
         used internally and in CFA-0.5 files."""
         # get the dimension definitions from the CFAVar
-        if cfa_version == "0.4":
+        if cfa_version == "0.4" or nc_parent==None:
             # create Dataset in memory
             self.nc_partition_group = netCDF4.Dataset(
                 "inmemory.nc", mode="w", diskless=True, persist=False,
@@ -1115,7 +1122,7 @@ cdef class CFAVariable:
                 # containing the partition information.  This is to ensure the
                 # same code can be used for accessing partitions in CFA-0.4
                 # format and CFA-0.5 format
-                self.createNCPartition(cfa_version="0.4")
+                self.__createNCPartition(cfa_version="0.4")
                 # get a shortcut to the partition group
                 ncp = self.nc_partition_group
                 for p in cfa_json["Partitions"]:

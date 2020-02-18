@@ -2,7 +2,7 @@
     "version": "9",
     "hosts": {
         "{{ hostname0 }}": {
-            "alias": "{{ host0_alias }}-o",
+            "alias": "{{ host0_alias }}",
             "url": "{{ host0_url }}",
             "credentials": {
                 "accessKey": "{{ host0_access_key }}",
@@ -12,5 +12,5 @@
             "api": "S3v4"
         }
     },
-    "cache_location": "/Users/dhk63261/.cache"
+    "cache_location": "{{ /Users/dhk63261/.cache }}"
 }

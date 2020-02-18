@@ -59,9 +59,14 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     if DEBUG:
         print("\t . Creating tmp")
     # create the field variable and data
+    subarray_shape = np.array(
+        [12, shape[1], shape[2], shape[3]],
+        dtype='i'
+    )
     tmp_var = group.createVariable("tmp", np.float32,
                                     ("time", "level", "latitude", "longitude"),
-                                    fill_value=20e2
+                                    fill_value=2e2,
+                                    subarray_shape=subarray_shape
                                   )
     tmp_var.standard_name = "temperature"
     tmp_var.units = "degrees C"
@@ -106,7 +111,7 @@ def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
     ds = s3Dataset(file_name, format=format, mode='w', cfa_version=cfa_version,
                    diskless=False, persist=False)
     # construct the shape:
-    shape=[365, 60, 180.0/resolution_degrees+1, 360.0/resolution_degrees]
+    shape=[365, 1, 180.0/resolution_degrees+1, 360.0/resolution_degrees]
     # create the data inside the dataset
     create_test_dataset(ds, format, cfa_version, shape)
     if DEBUG:
@@ -148,7 +153,8 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print(dr.variables["scl"])
 
     tmp_var = group.variables["tmp"]
-    print((tmp_var[230:,0,0,0].squeeze()))
+    x = tmp_var[:,0,0,0].squeeze()
+    print(x, x.shape)
     # print(tmp_var[240:,0,0,0])
     dr.close()
     return True
