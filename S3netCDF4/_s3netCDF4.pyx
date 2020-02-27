@@ -777,6 +777,16 @@ class s3Group(object):
         else:
             self._nc_grp.setncatts(attdict)
 
+    def __getitem__(self, elem):
+        """Override the __getitem__ for the Dataset to return the group or
+        variable with the name of elem"""
+        if elem in self.variables:
+            return self.variables[elem]
+        else:
+            raise IndexError(
+                "{} not found as a group or variable in Dataset".format(elem)
+            )
+
     @property
     def variables(self):
         return self._s3_variables
@@ -829,7 +839,7 @@ class s3Dataset(object):
 
     def __init__(self, filename, mode='r', clobber=True, format='DEFAULT',
                  diskless=False, persist=False, keepweakref=False, memory=None,
-                 cfa_version="0.4", **kwargs):
+                 cfa_version="0.5", **kwargs):
         """The __init__ method can now be used with asyncio as all of the async
         functionally has been moved to the FileManager.
         Python reserved methods cannot be declared as `async`.
@@ -1081,6 +1091,18 @@ class s3Dataset(object):
             self._cfa_dataset.metadata[name] = value
         else:
             self._nc_dataset.__setattr__(name, value)
+
+    def __getitem__(self, elem):
+        """Override the __getitem__ for the Dataset to return the group or
+        variable with the name of elem"""
+        if elem in self.groups:
+            return self.groups[elem]
+        elif elem in self.variables:
+            return self.variables[elem]
+        else:
+            raise IndexError(
+                "{} not found as a group or variable in Dataset".format(elem)
+            )
 
     @property
     def groups(self):

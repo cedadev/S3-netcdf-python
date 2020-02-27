@@ -16,7 +16,7 @@ setup(
       'cython',
       'netcdf4',
       'botocore',
-      'aibotocore',
+      'aiobotocore',
       'psutil',
     ],
     directives= {'language_level':2},

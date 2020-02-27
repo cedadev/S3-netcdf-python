@@ -461,8 +461,13 @@ cdef class CFAGroup:
             else:
                 cfa_splitter.setSubarrayShape(subarray_shape)
 
-            # calculate the partition matrix shape
-            pmshape = (shape / subarray_shape).astype(np.int32)
+            # calculate the partition matrix shape, if no dimensions are zero
+            pmshape = np.zeros(len(shape), np.int32)
+            for i in range(0, len(shape)):
+                if shape[i] != 0 and subarray_shape[i] != 0:
+                    pmshape[i] = shape[i] / subarray_shape[i]
+                else:
+                    pmshape[i] = 0
 
             # create the new variable
             self.cfa_vars[var_name] = CFAVariable(
@@ -972,6 +977,11 @@ cdef class CFAVariable:
         ncp.variables["file"][index] = partition.file
         ncp.variables["format"][index] = partition.format
         ncp.variables["shape"][index] = partition.shape
+        # update the partition matrix shape - without the ndimensions part of
+        # the variable shape
+        self.pmshape = np.array(ncp.variables["index"].shape[:-1])
+        # update the pmshape variable
+        ncp.variables["pmshape"][:] = self.pmshape
 
     cpdef writeInitialPartitionInfo(CFAVariable self, basestring cfa_version,
                                     object nc_parent=None):
@@ -992,7 +1002,7 @@ cdef class CFAVariable:
         # partitions are dynamically created now, so no need to call
         # writePartition repeatedly
 
-    cpdef __createNCPartition(CFAVariable self, basestring cfa_version="0.4",
+    cpdef __createNCPartition(CFAVariable self, basestring cfa_version="0.5",
                               object nc_parent=None):
         """Create the datastructure in a netCDF file for the netCDF partition
         used internally and in CFA-0.5 files."""
@@ -1020,12 +1030,12 @@ cdef class CFAVariable:
         n_pm_dims = len(pm_shape)
         # create additional dimensions for location, shape etc.
         # in the partition matrix
-        ncp.createDimension("X", n_pm_dims)
-        ncp.createDimension("Y", 2)
+        ncp.createDimension("ndimensions", n_pm_dims)
+        ncp.createDimension("bounds", 2)
         # create the cfa variables the partitions
         ### pm_shape
         pm_shape_var = ncp.createVariable(
-            "pmshape", np.int32, dimensions = ("X",)
+            "pmshape", np.int32, dimensions = ("ndimensions",)
         )
         # pm_dimensions - just write as string
         pm_dimensions_var = ncp.createVariable(
@@ -1033,13 +1043,13 @@ cdef class CFAVariable:
         )
         ### index
         index_dim_names = list(pm_dimensions)
-        index_dim_names.append("X")
+        index_dim_names.append("ndimensions")
         index_var = ncp.createVariable(
             "index", np.int32, dimensions=index_dim_names
         )
         ### location
         location_dim_names = list(pm_dimensions)
-        location_dim_names.extend(["X", "Y"])
+        location_dim_names.extend(["ndimensions", "bounds"])
         location_var = ncp.createVariable(
             "location", np.int32, dimensions=location_dim_names
         )
