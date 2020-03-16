@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """Exceptions for the _CFAClasses"""
 
 class CFAError(BaseException):

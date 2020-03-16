@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """
 Configuration management for S3netCDF.  Configuration is stored for each user in
 a JSON file in their home directory: ~/.sem-sl.json

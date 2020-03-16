@@ -11,12 +11,8 @@ import glob
 from collections import OrderedDict
 import numpy as np
 
-from S3netCDF4._Exceptions import *
-from S3netCDF4._S3netCDF4 import s3Dataset
+from S3netCDF4._s3netCDF4 import s3Dataset as s3Dataset
 from S3netCDF4.CFA._CFAClasses import CFAPartition
-
-#import warnings
-#warnings.filterwarnings("error")
 
 def add_var_dims(in_object, out_object, axis, fname):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
@@ -44,7 +40,7 @@ def add_var_dims(in_object, out_object, axis, fname):
     for var in in_object.variables:
         in_var = in_object.variables[var]
         # if the variable does not already exist then create it
-        if var not in in_object.variables:
+        if var not in out_object.variables:
             # get the subarray shape
             subarray_shape = np.array(in_var.shape, 'i')
             # rejig axis to be unlimited
@@ -61,7 +57,8 @@ def add_var_dims(in_object, out_object, axis, fname):
         if out_var._cfa_var:
             # get the current partition matrix shape
             c_shape = out_var._cfa_var.getPartitionMatrixShape()
-            # create the index
+            # create the index to append at the end of the currently used
+            # indices
             n_dims = len(in_object.dimensions)
             index = np.zeros(n_dims, 'i')
             index[axis_dim_n] = c_shape[0]
@@ -70,13 +67,28 @@ def add_var_dims(in_object, out_object, axis, fname):
             location = np.zeros([n_dims,2],'i')
             if axis in in_object.variables:
                 axis_dim_var = in_object.variables[axis]
-                location[axis_dim_n, 0] = axis_dim_var[0]
-                location[axis_dim_n, 1] = axis_dim_var[-1]
+                # get the axis resolution - i.e. the difference for each step
+                # along the axis
+                try:
+                    axis_res = axis_dim_var[1] - axis_dim_var[0]
+                except IndexError:
+                    axis_res = 1
+                # set the location for the aggregating axis dimension
+                location[axis_dim_n, 0] = int(axis_dim_var[0] / axis_res)
+                location[axis_dim_n, 1] = int(axis_dim_var[-1] / axis_res)
+                # set the locations for the other dimensions - equal to 0 to the
+                # shape of the array
+                for d, dim in enumerate(in_object.dimensions):
+                    # don't redo the above for axis_dim_n
+                    if d != axis_dim_n:
+                        location[d, 0] = 0
+                        location[d, 1] = in_object.dimensions[dim].size
+
             # get the datamodel from the parent object
             try:
-                datamodel = in_object._nc_grp.data_model
-            except:
-                datamodel = in_object._nc_dataset.data_model
+                datamodel = out_object._nc_grp.data_model
+            except (KeyError, AttributeError):
+                datamodel = out_object._nc_dataset.data_model
 
             # create the partition
             partition = CFAPartition(
@@ -89,6 +101,15 @@ def add_var_dims(in_object, out_object, axis, fname):
             )
             # write the partition
             out_var._cfa_var.writePartition(partition)
+        else:
+            # assign the values from the input variable to the output variable
+            # if it is the axis variable then append / concatenate
+            if var == axis:
+                var_vals = in_object.variables[var][:]
+                axl = out_var._nc_var.shape[axis_dim_n]
+                out_var[axl:] = var_vals[:]
+            else:
+                out_var[:] = in_object.variables[var][:]
 
 def create_partitions_from_files(out_dataset, files, axis, cfa_version):
     """Create the CFA partitions from a list of files."""
@@ -104,7 +125,6 @@ def create_partitions_from_files(out_dataset, files, axis, cfa_version):
         # loop over the groups
         for grp in in_dataset.groups:
             in_group = in_dataset[grp]
-            print(in_group)
             # create a group if one with this name does not exist
             if grp not in out_dataset.groups:
                 out_group = out_dataset.createGroup(grp)
@@ -115,10 +135,77 @@ def create_partitions_from_files(out_dataset, files, axis, cfa_version):
                 x: in_group.getncattr(x) for x in in_group.ncattrs()
             }
             out_group._cfa_grp.metadata.update(in_group_attrs)
-            add_var_dims(out_group, in_group, axis, fname)
+            add_var_dims(in_group, out_group, axis, fname)
 
         # add the variables in the root group
-        add_var_dims(out_dataset, in_dataset, axis, fname)
+        add_var_dims(in_dataset, out_dataset, axis, fname)
+
+def sort_partition_matrix(out_var, axis):
+    """Sort the partition matrix for a single variable."""
+    # get the index of the axis that we are aggregating over
+    try:
+        axis_dim_n = out_var._cfa_var.getPartitionMatrixDimensions().index(axis)
+        # get the partition shape
+        part_shape = out_var._cfa_var.getPartitionMatrixShape()
+        # create the index
+        n_dims = len(out_var._cfa_var.getDimensions())
+        # get the location values from the partition
+        locs = out_var._cfa_var.getPartitionValues(key="location").squeeze()
+        # get the first (start) location values and get the order to sort them
+        # in
+        sort_order = np.argsort(locs[:,axis_dim_n,0])
+        # loop over the sort order and write the partition information into
+        # the new location
+        # keep a list of partitions
+        new_parts = []
+        for i, s in enumerate(sort_order):
+            # build the index to get the partition, in the sort order
+            index = np.zeros(n_dims,'i')
+            index[axis_dim_n] = s
+            # get the partition
+            source_part = out_var._cfa_var.getPartition(index)
+            # reassign the index
+            source_part.index[axis_dim_n] = i
+            # add to the list
+            new_parts.append(source_part)
+        # now rewrite the partitions
+        for part in new_parts:
+            out_var._cfa_var.writePartition(part)
+
+    except ValueError:
+        axis_dim_n = 0
+
+def sort_axis_variable(out_object, axis):
+    # sort the axis variable and write back out to the netCDF object
+    try:
+        axis_dim_var = out_object.variables[axis]
+        axis_dim_var[:] = np.sort(axis_dim_var[:])
+    except KeyError:
+        pass
+
+def sort_partition_matrices(out_dataset, axis):
+    """Sort the partition matrices for all the variables.  Sort is based on the
+    first element of the location."""
+    # need to sort all groups
+    for grp in out_dataset.groups:
+        out_group = out_dataset.groups[grp]
+        # need to sort all variables in the group
+        for var in out_group.variables:
+            out_var = out_group.variables[var]
+            if out_var._cfa_var:
+                sort_partition_matrix(out_var, axis)
+
+        # sort the axis variable in the group
+        sort_axis_variable(out_group, axis)
+
+    # need to sort all the variables just in the database
+    for var in out_dataset.variables:
+        out_var = out_dataset.variables[var]
+        if out_var._cfa_var:
+            sort_partition_matrix(out_var, axis)
+
+    # sort the axis variable in the dataset
+    sort_axis_variable(out_dataset, axis)
 
 def aggregate_into_CFA(output_master_array, directory, axis, cfa_version):
     """Aggregate the netCDF files in directory into a CFA master-array file"""
@@ -134,9 +221,8 @@ def aggregate_into_CFA(output_master_array, directory, axis, cfa_version):
         cfa_version=cfa_version
     )
     # create the partitions from the list
-    partitions = create_partitions_from_files(
-         out_dataset, files, axis, cfa_version
-    )
+    create_partitions_from_files(out_dataset, files, axis, cfa_version)
+    sort_partition_matrices(out_dataset, axis)
     out_dataset.close()
     # print(partitions)
     #print(cfa_dataset)

@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """
 File management for S3netCDF.  Operation:
 o. Files are opened from a single URL

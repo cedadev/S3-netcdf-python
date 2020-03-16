@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """
 S3 enabled version of netCDF4.
 Allows reading and writing of netCDF files to object stores via AWS S3.
@@ -18,7 +21,7 @@ from psutil import virtual_memory
 # import as netCDF4 to avoid confusion with the S3netCDF4 module
 import netCDF4._netCDF4 as netCDF4
 
-from _Exceptions import *
+from S3netCDF4._Exceptions import *
 from S3netCDF4.CFA._CFAClasses import *
 from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
 from S3netCDF4.Managers._FileManager import FileManager, OpenFileRecord
@@ -1075,7 +1078,7 @@ class s3Dataset(object):
             return self.groups
         elif name in netCDF4._private_atts:
             return self._nc_dataset.__getattr__(name)
-        elif hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+        elif (hasattr(self, "_cfa_dataset") and self._cfa_dataset):
             return self._cfa_dataset.metadata[name]
         else:
             return self._nc_dataset.__getattr__(name)

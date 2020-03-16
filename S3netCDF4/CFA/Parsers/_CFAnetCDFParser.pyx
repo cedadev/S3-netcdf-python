@@ -1,3 +1,8 @@
+#!python
+#cython: language_level=3
+__copyright__ = "(C) 2019 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+
 """
    Parser to read / write CFA metadata from / to a netCDF file.
 
@@ -12,7 +17,7 @@ import netCDF4._netCDF4 as netCDF4
 import posixpath
 import json
 
-from _CFAParser import CFA_Parser
+from S3netCDF4.CFA.Parsers._CFAParser import CFA_Parser
 
 class CFA_netCDFParser(CFA_Parser):
 

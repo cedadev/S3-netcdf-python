@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """
    CFASplitter class containing the routines required to take a
    multi-dimensional array and split it into subarrays according to the protocol

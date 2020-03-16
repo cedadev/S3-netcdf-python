@@ -1,3 +1,6 @@
+#!python
+#cython: language_level=3
+
 """
 A very simple connection pool for S3netCDF.  This allows connections to be
 maintained to (for example) a AWS or object store.  The pool allows for the

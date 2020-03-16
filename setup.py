@@ -19,7 +19,7 @@ setup(
       'aiobotocore',
       'psutil',
     ],
-    directives= {'language_level':2},
+    language_level=3,
     include_package_data=True,
     license='my License',  # example license
     description='A library to facilitate the storage of netCDF files on ObjectStores in an efficient manner.',
