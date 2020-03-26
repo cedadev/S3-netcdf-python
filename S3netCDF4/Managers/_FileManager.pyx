@@ -122,6 +122,21 @@ class FileObject(object):
         else:
             self.file_handle.close()
 
+    def glob(self):
+        """List the files at the path stored in file_handle, matching the
+        pattern in pattern"""
+        if self._async_system:
+            # schedule a task to read the entire file
+            el = self._event_loop
+            glob_task = el.create_task(
+                self.file_handle.glob()
+            )
+            el.run_until_complete(glob_task)
+            files = glob_task.result()
+        else:
+            files = self.file_handle.glob()
+        return files
+
 class OpenFileRecord(object):
     """An object that contains a record of a file in the FileManager.
     This is different to the FileObject above, which records the file's
@@ -234,7 +249,11 @@ class FileManager(object):
                     dir_path = os.path.dirname(url)
                     if not os.path.exists(dir_path):
                         os.makedirs(dir_path)
-                _fo._fh = open(url, mode=mode)
+                # check if it's a directory or not, or contains glob wildcards
+                if (os.path.isdir(url) or '*' in url or '?' in url):
+                    _fo._fh = None
+                else:
+                    _fo._fh = open(url, mode=mode)
             except FileNotFoundError as e:
                 if alias != "://" and alias not in FileManager._config["hosts"]:
                     raise IOException(
@@ -253,20 +272,20 @@ class FileManager(object):
                 _fo._remote_system = True
             else:
                 _fo._remote_system = False
-        except:
+        except AttributeError:
             _fo._remote_system = False
 
         # debug test - force remote_system
         #_fo._remote_system = True
+        # This all looks very bizarre - but it due to us using Cython,
+        # rather than CPython and asyncio coroutines.
+        # In CPython each coroutine function has 128 added to the code type
+        # bit mask, whereas in Cython, 128 is not present in the bit mask.
+        # This means that inspect.iscoroutine() fails to acknowledge that
+        # a Cython compiled coroutine function is a coroutine function!!!
+        # This workaround seems quite elegant, but relies on instantiating
+        # the connection before it is optimum
         try:
-            # This all looks very bizarre - but it due to us using Cython,
-            # rather than CPython and asyncio coroutines.
-            # In CPython each coroutine function has 128 added to the code type
-            # bit mask, whereas in Cython, 128 is not present in the bit mask.
-            # This means that inspect.iscoroutine() fails to acknowledge that
-            # a Cython compiled coroutine function is a coroutine function!!!
-            # This workaround seems quite elegant, but relies on instantiating
-            # the connection before it is optimum
             connection = _fo.file_handle.connect()
             if "coroutine" in str(connection):
                 _fo._async_system = True
@@ -281,7 +300,7 @@ class FileManager(object):
                 )
             else:
                 _fo._async_system = False
-        except:
+        except AttributeError:
             _fo._async_system = False
         return _fo
 

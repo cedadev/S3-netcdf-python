@@ -6,13 +6,14 @@ files that have been aggregated.
 """
 
 import argparse
+from urllib.parse import urlparse
 import os
-import glob
-from collections import OrderedDict
+from glob import glob
 import numpy as np
 
 from S3netCDF4._s3netCDF4 import s3Dataset as s3Dataset
 from S3netCDF4.CFA._CFAClasses import CFAPartition
+from S3netCDF4.Managers._FileManager import FileManager
 
 def add_var_dims(in_object, out_object, axis, fname):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
@@ -42,7 +43,8 @@ def add_var_dims(in_object, out_object, axis, fname):
         # if the variable does not already exist then create it
         if var not in out_object.variables:
             # get the subarray shape
-            subarray_shape = np.array(in_var.shape, 'i')
+            shp = in_var.shape
+            subarray_shape = np.array(shp, 'i')
             # rejig axis to be unlimited
             subarray_shape[axis_dim_n] = 0
             out_var = out_object.createVariable(
@@ -207,10 +209,39 @@ def sort_partition_matrices(out_dataset, axis):
     # sort the axis variable in the dataset
     sort_axis_variable(out_dataset, axis)
 
-def aggregate_into_CFA(output_master_array, directory, axis, cfa_version):
+def get_file_list(path):
+    """Get a list of files given the path.
+       The path can be:
+            a directory
+            a glob with multiple wildcards
+            a 'path' on a S3 storage device
+    """
+    # open the directory as a FileManager object
+    fm = FileManager()
+    path = os.path.expanduser(path)
+    file_object = fm._open(path)
+
+    # get a list of files using the file object if it is a remote system
+    if (file_object.remote_system):
+        # split the url into the scheme, netloc, etc.
+        url_o = urlparse(path)
+        # the alias is the scheme + "://" + netloc
+        alias = url_o.scheme + "://" + url_o.netloc
+        # use a paginator to get multiple pages of the objects in the bucket
+        files = file_object.glob()
+        # add the alias and bucket to each of the files
+        bucket = file_object.file_handle._bucket
+        for i, f in enumerate(files):
+            files[i] = alias + "/" + bucket + "/" + f
+    else:
+        # or get a list of files using glob
+        files = glob(path)
+    return files
+
+def aggregate_into_CFA(output_master_array, path, axis, cfa_version):
     """Aggregate the netCDF files in directory into a CFA master-array file"""
     # get the list of files first of all
-    files = glob.glob(os.path.expanduser(directory))
+    files = get_file_list(path)
     # create the s3Dataset
     # create the output master array file
     out_dataset = s3Dataset(
@@ -220,14 +251,14 @@ def aggregate_into_CFA(output_master_array, directory, axis, cfa_version):
         diskless=False,
         cfa_version=cfa_version
     )
-    # create the partitions from the list
+    # create the partitions from the list - these will be created in the order
+    # that the files are read in
     create_partitions_from_files(out_dataset, files, axis, cfa_version)
+    # we need to sort the partition matrices for each variable - i.e. there is
+    # one matrix per variable
     sort_partition_matrices(out_dataset, axis)
+    # close the dataset to write / upload it
     out_dataset.close()
-    # print(partitions)
-    #print(cfa_dataset)
-    #print(cfa_dataset.getGroup(cfa_dataset.getGroups()[0]))
-    #print(cfa_dataset.getGroup(cfa_dataset.getGroups()[1]))
 
 if __name__ == "__main__":
 

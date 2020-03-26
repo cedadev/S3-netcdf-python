@@ -14,13 +14,14 @@ Updated: 13/05/2019
 
 import numpy as np
 from psutil import virtual_memory
+import os
+import errno
 
 # This module Duplicates classes and functions from the standard UniData netCDF4
 # implementation and overrides their functionality so as it enable S3 and CFA
 # functionality
 # import as netCDF4 to avoid confusion with the S3netCDF4 module
 import netCDF4._netCDF4 as netCDF4
-
 from S3netCDF4._Exceptions import *
 from S3netCDF4.CFA._CFAClasses import *
 from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
@@ -110,7 +111,7 @@ class s3Variable(object):
     """
     # private attributes for just the s3Variable
     _private_atts = [
-        "_cfa_var", "_cfa_dim", "_nc_var", "_file_manager", "parent"
+        "_cfa_var", "_cfa_dim", "_nc_var", "_file_manager", "parent", "shape"
     ]
 
     def __init__(self, cfa_var=None, cfa_dim=None, nc_var=None, parent=None):
@@ -260,32 +261,58 @@ class s3Variable(object):
             chunk_cache=chunk_cache
         )
 
+    @property
+    def shape(self):
+        """Override the shape parameter."""
+        if hasattr(self, "_cfa_var"):
+            return self._cfa_var.shape()
+        else:
+            return self._nc_var.shape
+
+    @property
+    def dtype(self):
+        """Override the dtype parameter."""
+        if hasattr(self, "_cfa_var"):
+            return self._cfa_var.getType()
+        else:
+            return self._nc_var.dtype
+
+    @property
+    def dimensions(self):
+        if hasattr(self, "_cfa_var"):
+            return tuple(self._cfa_var.getDimensions())
+        else:
+            return self._nc_var.dimensions
+
+
     def __getattr__(self, name):
         """Override the __getattr__ for the Group so as to return its
         private variables."""
-        if name in s3Variable._private_atts:
-            return self.__dict__[name]
-        elif name in netCDF4._private_atts:
-            return self._nc_var.__getattr__(name)
-        elif hasattr(self, "_cfa_var") and self._cfa_var:
-            return self._cfa_var.metadata[name]
-        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
-            return self._cfa_dim.metadata[name]
-        else:
+        try:
+            if name in s3Variable._private_atts:
+                return self.__dict__[name]
+            elif name in netCDF4._private_atts:
+                return self._nc_var.__getattr__(name)
+            elif hasattr(self, "_cfa_var") and self._cfa_var:
+                return self._cfa_var.metadata[name]
+            elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+                return self._cfa_dim.metadata[name]
+        except KeyError:
             return self._nc_var.__getattr__(name)
 
     def __setattr__(self, name, value):
         """Override the __setattr__ for the Group so as to assign its
         private variables."""
-        if name in s3Variable._private_atts:
-            self.__dict__[name] = value
-        elif name in netCDF4._private_atts:
-            self._nc_var.__setattr__(name, value)
-        elif hasattr(self, "_cfa_var") and self._cfa_var:
-            self._cfa_var.metadata[name] = value
-        elif hasattr(self, "_cfa_dim") and self._cfa_dim:
-            self._cfa_dim.metadata[name] = value
-        else:
+        try:
+            if name in s3Variable._private_atts:
+                self.__dict__[name] = value
+            elif name in netCDF4._private_atts:
+                self._nc_var.__setattr__(name, value)
+            elif hasattr(self, "_cfa_var") and self._cfa_var:
+                self._cfa_var.metadata[name] = value
+            elif hasattr(self, "_cfa_dim") and self._cfa_dim:
+                self._cfa_dim.metadata[name] = value
+        except KeyError:
             self._nc_var.__setattr__(name, value)
 
     def delncattr(self, name):
@@ -934,6 +961,13 @@ class s3Dataset(object):
             self._managed_object.data_object = self._nc_dataset
         # handle read-only mode
         elif mode == 'r':
+            # check the file exists
+            if (
+            self._managed_object.open_state == OpenFileRecord.DOES_NOT_EXIST
+            ):
+                raise FileNotFoundError(
+                    errno.ENOENT, os.strerror(errno.ENOENT), filename
+                )
             # get the header data
             data = self._managed_object.file_object.read_from(0, 6)
             file_type, file_version = s3Dataset._interpret_netCDF_filetype(data)

@@ -165,7 +165,8 @@ class s3FileObject(io.BufferedIOBase):
                     "Could not connect to S3 endpoint {} {}".format(
                         self._server, e)
                 )
-        if 'r' in self._mode:
+        if ('r' in self._mode and '*' not in self._path and
+            '?' not in self._path):
             # if this is a read method then check the file exists
             response = self._conn_obj.conn.list_objects_v2(
                 Bucket=self._bucket,
