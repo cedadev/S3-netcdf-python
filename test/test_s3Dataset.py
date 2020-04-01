@@ -84,6 +84,7 @@ def create_test_dataset(s3_ds, format, cfa_version, shape=[30,1,192,145]):
     vec_var = s3_ds.createVariable("vector", np.int32, ("vector",))
     vec_var[:] = 12+np.arange(0,128)
     velocity = s3_ds.createVariable("velocity", np.float32, ("vector",))
+    velocity.units = "ms-1"
 
 def get_file_path(path_stub, format, cfa_version=None):
     """Get the path to the file for reading or writing.

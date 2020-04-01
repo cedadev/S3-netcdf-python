@@ -81,8 +81,8 @@ class s3Dimension(object):
             return self._nc_dim.__getattr__(name)
 
     def __setattr__(self, name, value):
-        """Override the __getattr__ for the dimension and return the
-            corresponding attribute from the _nc_dim object."""
+        """Override the __setattr__ for the dimension and set the
+            corresponding attribute in the _nc_dim object."""
         if name in s3Dimension._private_atts:
             self.__dict__[name] = value
         elif name == "_dimid":
@@ -286,7 +286,7 @@ class s3Variable(object):
 
 
     def __getattr__(self, name):
-        """Override the __getattr__ for the Group so as to return its
+        """Override the __getattr__ for the Variable so as to return its
         private variables."""
         try:
             if name in s3Variable._private_atts:
@@ -301,7 +301,7 @@ class s3Variable(object):
             return self._nc_var.__getattr__(name)
 
     def __setattr__(self, name, value):
-        """Override the __setattr__ for the Group so as to assign its
+        """Override the __setattr__ for the Variable so as to assign its
         private variables."""
         try:
             if name in s3Variable._private_atts:

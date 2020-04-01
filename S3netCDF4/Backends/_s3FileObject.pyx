@@ -4,6 +4,7 @@ __copyright__ = "(C) 2019 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
 
 import io
+import fnmatch
 from urllib.parse import urlparse, urljoin, urlsplit
 
 from botocore.exceptions import ClientError
@@ -556,3 +557,36 @@ class s3FileObject(io.BufferedIOBase):
         for l in lines:
             self.write((l+"\n").encode('utf-8'))
         return True
+
+    def glob(self):
+        """Emulate glob on an open bucket.  The glob has been passed in via
+        self._path, created on connection to the server and bucket."""
+        # get the path string up to the wildcards
+        try:
+            pi1 = self._path.index("*")
+        except ValueError:
+            pi1 = len(self._path)
+        try:
+            pi2 = self._path.index("?")
+        except ValueError:
+            pi2 = len(self._path)
+        pi = min(pi1, pi2)
+        # using the prefix will cut down on the search space
+        prefix = self._path[:pi]
+        # get the wildcard
+        wildcard = self._path[pi:]
+        # set up the paginator
+        paginator = self._conn_obj.conn.get_paginator("list_objects_v2")
+        parameters = {
+            'Bucket': self._bucket,
+            'Prefix': prefix
+        }
+        page_iterator = paginator.paginate(**parameters)
+        files = []
+        for page in page_iterator:
+            for item in page.get('Contents', []):
+                fname = item['Key']
+                # check that it matches against wildcard
+                if fnmatch.fnmatch(fname, wildcard):
+                    files.append(item['Key'])
+        return files

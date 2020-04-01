@@ -40,6 +40,10 @@ def add_var_dims(in_object, out_object, axis, fname):
     # create variable
     for var in in_object.variables:
         in_var = in_object.variables[var]
+        # get the variable metadata
+        in_var_attrs = {
+            x: in_var.getncattr(x) for x in in_var.ncattrs()
+        }
         # if the variable does not already exist then create it
         if var not in out_object.variables:
             # get the subarray shape
@@ -101,6 +105,8 @@ def add_var_dims(in_object, out_object, axis, fname):
                 format=datamodel,
                 shape=in_var.shape
             )
+            # add the attributes to the s3Dataset by updating the dictionary
+            out_var._cfa_var.metadata.update(in_var_attrs)
             # write the partition
             out_var._cfa_var.writePartition(partition)
         else:
@@ -112,6 +118,8 @@ def add_var_dims(in_object, out_object, axis, fname):
                 out_var[axl:] = var_vals[:]
             else:
                 out_var[:] = in_object.variables[var][:]
+            # set the attributes
+            out_var.setncatts(in_var_attrs)
 
 def create_partitions_from_files(out_dataset, files, axis, cfa_version):
     """Create the CFA partitions from a list of files."""
@@ -261,7 +269,6 @@ def aggregate_into_CFA(output_master_array, path, axis, cfa_version):
     out_dataset.close()
 
 if __name__ == "__main__":
-
     # set up and parse the arguments
     parser = argparse.ArgumentParser(
         prog="s3nc_cfa_agg",

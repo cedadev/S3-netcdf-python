@@ -175,13 +175,22 @@ class CFA_netCDFParser(CFA_Parser):
             cfa_group = cfa_dataset.createGroup(group_name, nc_group_md)
             # next parse the dimensions
             for nc_dimname in nc_group.dimensions:
-                # get the dimension's associated variable
+                # get the dimension
                 nc_dim = nc_group.dimensions[nc_dimname]
+                # get the dimension's associated variable
+                try:
+                    nc_dim_var = nc_group.variables[nc_dimname]
+                    # get the metadata from the dim var
+                    nc_dim_var_md = {
+                        a:nc_dim_var.getncattr(a) for a in nc_dim_var.ncattrs()
+                    }
+                except KeyError:
+                    nc_dim_var_md = {}
                 # create the dimension and append to list of cfa_dims
                 cfa_dim = cfa_group.createDimension(
                               dim_name=nc_dimname,
                               dim_len=nc_dim.size,
-                              metadata={}
+                              metadata=nc_dim_var_md
                             )
 
             # loop over the variables in the group / dataset
@@ -251,7 +260,7 @@ class CFA_netCDFParser(CFA_Parser):
                 s3_group = s3_dataset.groups[group]
                 nc_group = s3_group._nc_grp # shortcut
             # set the metadata for the group
-            netCDF4.Group.setncatts(nc_group, cfa_group.getMetadata())
+            nc_group.setncatts(cfa_group.getMetadata())
 
             # set the metadata for the variables
             for var in cfa_group.getVariables():
@@ -282,7 +291,7 @@ class CFA_netCDFParser(CFA_Parser):
                             )
                         )
                 # set the metadata for the variable
-                netCDF4.Variable.setncatts(nc_var, var_md)
+                nc_var.setncatts(var_md)
             # set the metadata for the dimension variables
             for dim_var in cfa_group.getDimensions():
                 # get the actual cfa dimensions
@@ -294,7 +303,7 @@ class CFA_netCDFParser(CFA_Parser):
                     # metadata
                     dim_md = dict(cfa_dim.getMetadata())
                     # set the metadata for the variable
-                    netCDF4.Variable.setncatts(nc_dimvar, dim_md)
+                    nc_dimvar.setncatts(dim_md)
                 except KeyError:
                     pass # don't try to write to dimension with no associated
                          # variable
