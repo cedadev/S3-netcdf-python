@@ -211,7 +211,9 @@ class s3aioFileObject(object):
             Range = range_fmt
         )
         body = s3_object['Body']
-        data_buf[s:e] = await body.read()
+        # need a +1 here as range_fmt is inclusive for the start and end points
+        # whereas Python is exclusive
+        data_buf[s:e+1] = await body.read()
 
     async def read(self, size=-1):
         """Read and return up to size bytes. For the S3 implementation the size
@@ -224,12 +226,12 @@ class s3aioFileObject(object):
             file_size = await self._getsize()
             if size== -1:
                 range_start = 0
-                range_end   = file_size-1
+                range_end   = file_size
                 range_size  = file_size
             else:
                 range_start = self._seek_pos
                 range_end   = self._seek_pos+size-1
-                if range_end >= file_size:
+                if range_end > file_size:
                     range_end = file_size-1
                 range_size  = range_end-range_start+1
 
@@ -273,7 +275,7 @@ class s3aioFileObject(object):
                 if n_parts > self._max_parts:
                     n_parts = self._max_parts
                 # (re)calculate the download size
-                part_size = int(range_size / n_parts)
+                part_size = float(range_size) / n_parts
                 # create the tasks
                 tasks = []
                 data = bytearray(range_size)
