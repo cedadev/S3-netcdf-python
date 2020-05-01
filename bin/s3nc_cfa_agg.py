@@ -17,6 +17,7 @@ from S3netCDF4.Managers._FileManager import FileManager
 
 def add_var_dims(in_object, out_object, axis, fname):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
+    print(fname)
     # create dimension, get the axis dimension location
     axis_dim_n = -1
     for d, dim in enumerate(in_object.dimensions):
@@ -49,12 +50,19 @@ def add_var_dims(in_object, out_object, axis, fname):
             # get the subarray shape
             shp = in_var.shape
             subarray_shape = np.array(shp, 'i')
-            # rejig axis to be unlimited
-            subarray_shape[axis_dim_n] = 0
-            out_var = out_object.createVariable(
-                var, in_var.dtype, in_var.dimensions,
-                subarray_shape=subarray_shape
-            )
+            if len(in_var.dimensions) > 0:
+                # rejig axis to be unlimited
+                if len(subarray_shape) > axis_dim_n:
+                    subarray_shape[axis_dim_n] = 0
+                # create the variable with subarray
+                out_var = out_object.createVariable(
+                    var, in_var.dtype, in_var.dimensions,
+                    subarray_shape=subarray_shape
+                )
+            else: # no dimensions, just a scalar variable
+                out_var = out_object.createVariable(
+                    var, in_var.dtype
+                )
         else:
             # variable has already been created so get it
             out_var = out_object.variables[var]
@@ -65,13 +73,15 @@ def add_var_dims(in_object, out_object, axis, fname):
             c_shape = out_var._cfa_var.getPartitionMatrixShape()
             # create the index to append at the end of the currently used
             # indices
-            n_dims = len(in_object.dimensions)
-            index = np.zeros(n_dims, 'i')
-            index[axis_dim_n] = c_shape[0]
-            # get the location along the aggregation axis in the Master Array,
-            # from the axis dimension variable
-            location = np.zeros([n_dims,2],'i')
-            if axis in in_object.variables:
+            n_dims = len(out_var.dimensions)
+            if n_dims > 0:
+                index = np.zeros(n_dims, 'i')
+                index[axis_dim_n] = c_shape[0]
+                # get the location along the aggregation axis in the Master Array,
+                # from the axis dimension variable
+                location = np.zeros([n_dims, 2],'i')
+
+            if axis in in_var.dimensions:
                 axis_dim_var = in_object.variables[axis]
                 # get the axis resolution - i.e. the difference for each step
                 # along the axis
@@ -84,11 +94,16 @@ def add_var_dims(in_object, out_object, axis, fname):
                 location[axis_dim_n, 1] = int(axis_dim_var[-1] / axis_res)
                 # set the locations for the other dimensions - equal to 0 to the
                 # shape of the array
-                for d, dim in enumerate(in_object.dimensions):
+                for d, dim in enumerate(out_var.dimensions):
                     # don't redo the above for axis_dim_n
                     if d != axis_dim_n:
                         location[d, 0] = 0
-                        location[d, 1] = in_object.dimensions[dim].size
+                        location[d, 1] = in_var.shape[d]
+            else:
+                for d in range(0, len(in_var.shape)):
+                    location[d, 0] = 0
+                    location[d, 1] = in_var.shape[d]
+            
 
             # get the datamodel from the parent object
             try:
@@ -96,19 +111,20 @@ def add_var_dims(in_object, out_object, axis, fname):
             except (KeyError, AttributeError):
                 datamodel = out_object._nc_dataset.data_model
 
-            # create the partition
-            partition = CFAPartition(
-                index=tuple(index),
-                location=location,
-                ncvar=var,
-                file=fname,
-                format=datamodel,
-                shape=in_var.shape
-            )
-            # add the attributes to the s3Dataset by updating the dictionary
-            out_var._cfa_var.metadata.update(in_var_attrs)
-            # write the partition
-            out_var._cfa_var.writePartition(partition)
+            # create the partition for none scalar variables
+            if len(out_var._cfa_var.getPartitionMatrixShape() != 0):
+                partition = CFAPartition(
+                    index=tuple(index),
+                    location=location,
+                    ncvar=var,
+                    file=fname,
+                    format=datamodel,
+                    shape=in_var.shape
+                )
+                # write the partition
+                out_var._cfa_var.writePartition(partition)
+                # add the attributes to the s3Dataset by updating the dictionary
+                out_var._cfa_var.metadata.update(in_var_attrs)
         else:
             # assign the values from the input variable to the output variable
             # if it is the axis variable then append / concatenate
@@ -149,6 +165,7 @@ def create_partitions_from_files(out_dataset, files, axis, cfa_version):
 
         # add the variables in the root group
         add_var_dims(in_dataset, out_dataset, axis, fname)
+        in_dataset.close()
 
 def sort_partition_matrix(out_var, axis):
     """Sort the partition matrix for a single variable."""
