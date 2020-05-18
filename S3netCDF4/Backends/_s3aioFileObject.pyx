@@ -201,9 +201,9 @@ class s3aioFileObject(object):
         Not supported in S3."""
         raise io.UnsupportedOperation
 
-    async def _read_partial_file(self, part_num, part_size, data_buf):
+    async def _read_partial_file(self, part_num, part_size):
         s = int(part_num*part_size)
-        e = int((part_num+1)*part_size)
+        e = int((part_num+1)*part_size)-1
         range_fmt = 'bytes={}-{}'.format(s,e)
         s3_object = await self._conn_obj.conn.get_object(
             Bucket = self._bucket,
@@ -211,9 +211,7 @@ class s3aioFileObject(object):
             Range = range_fmt
         )
         body = s3_object['Body']
-        # need a +1 here as range_fmt is inclusive for the start and end points
-        # whereas Python is exclusive
-        data_buf[s:e+1] = await body.read()
+        return await body.read()
 
     async def read(self, size=-1):
         """Read and return up to size bytes. For the S3 implementation the size
@@ -276,16 +274,23 @@ class s3aioFileObject(object):
                     n_parts = self._max_parts
                 # (re)calculate the download size
                 part_size = float(range_size) / n_parts
-                # create the tasks
+                # create the tasks and assign the return data buffer
                 tasks = []
-                data = bytearray(range_size)
+                data_buf = io.BytesIO()
 
                 for p in range(0, n_parts):
                     task = asyncio.create_task(self._read_partial_file(
-                        p, part_size, data
+                        p, part_size
                     ))
                     tasks.append(task)
-                await asyncio.gather(*tasks)
+                # wait for all the tasks to finish
+                results = await asyncio.gather(*tasks)
+                # read each chunk of data and write into the global buffer
+                for r in results:
+                    data_buf.write(r)
+                    r = None            # indicate ready for garbage collection
+                data_buf.seek(0)
+                data = data_buf.read()
 
         except ClientError as e:
             raise IOException(
@@ -387,7 +392,7 @@ class s3aioFileObject(object):
             ))
             tasks.append(task)
 
-        # await the completion of the uploads§
+        # await the completion of the uploads
         res = await asyncio.gather(*tasks)
         for buffer_part in range(0, len(self._buffer)):
             # insert into the multipart info list of dictionaries
