@@ -219,22 +219,22 @@ class s3FileObject(io.BufferedIOBase):
                 if range_end >= file_size:
                     range_end = file_size-1
 
-            if not self._multipart_download:
-                s3_object = self._conn_obj.conn.get_object(
-                    Bucket = self._bucket,
-                    Key = self._path,
-                )
-                body = s3_object['Body']
-            else:
-                s3_object = self._conn_obj.conn.get_object(
-                    Bucket = self._bucket,
-                    Key = self._path,
-                    Range = 'bytes={}-{}'.format(
-                        self._seek_pos, range_end
+                if not self._multipart_download:
+                    s3_object = self._conn_obj.conn.get_object(
+                        Bucket = self._bucket,
+                        Key = self._path,
                     )
-                )
-                self._seek_pos += size
-                body = s3_object['Body']
+                    body = s3_object['Body']
+                else:
+                    s3_object = self._conn_obj.conn.get_object(
+                        Bucket = self._bucket,
+                        Key = self._path,
+                        Range = 'bytes={}-{}'.format(
+                            self._seek_pos, range_end
+                        )
+                    )
+                    self._seek_pos += size
+                    body = s3_object['Body']
         except ClientError as e:
             raise IOException(
                 "Could not read from object {} {}".format(self._path, e)
@@ -388,7 +388,7 @@ class s3FileObject(io.BufferedIOBase):
         the first call, however, will have an effect."""
         try:
             if not self._closed:
-                # self.flush will upload the bytesarray to the S3 store
+                # self.flush will upload the buffer to the S3 store
                 self.flush()
                 s3FileObject._connection_pool.release(self._conn_obj)
                 self._closed = True

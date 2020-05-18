@@ -12,6 +12,7 @@ Date:    10/07/2017
 Updated: 13/05/2019
 """
 
+import sys
 import numpy as np
 from psutil import virtual_memory
 import os
@@ -103,6 +104,33 @@ class s3Dimension(object):
     def size(self):
         return self._nc_dim.__len__()
 
+    def __repr__(self):
+        if hasattr(self, "_cfa_dim") and self._cfa_dim:
+            if sys.version_info[0] > 2:
+                return self.__unicode__()
+            else:
+                return unicode(self).encode('utf-8')
+        else:
+            return self._nc_dim.__repr__()
+
+    def __unicode__(self):
+        ncdump = ['{}\n'.format(type(self))]
+        cfa_dim = self._cfa_dim
+        # get whether this is an unlimited dimension
+        if self._nc_dim.isunlimited():
+            ncdump.append("unlimited: True\n")
+        ncdump.append("name: '{}'\n".format(cfa_dim.getName()))
+        # add the metadata
+        cfa_meta = cfa_dim.getMetadata()
+        for m in cfa_meta:
+            ncdump.append("    {}: {} \n".format(m, cfa_meta[m]))
+
+        ncdump.append("type: '{}'\n".format(cfa_dim.getType()))
+        ncdump.append("axis type: '{}'\n".format(cfa_dim.getAxisType()))
+        ncdump.append("size = ({})\n".format(cfa_dim.getLen()))
+        #ncdump.append(str(self._nc_dim))
+        return "".join(ncdump)
+
 class s3Variable(object):
     """
        Duplicate the UniData netCDF4 Variable class and override some key member
@@ -132,7 +160,6 @@ class s3Variable(object):
             return self.parent._file_manager
         else:
             return None
-
 
     def create(self, parent, name, datatype, dimensions=(), zlib=False,
             complevel=4, shuffle=True, fletcher32=False, contiguous=False,
@@ -652,6 +679,136 @@ class s3Variable(object):
         else:
             return self._nc_var[elem]
 
+    def __repr__(self):
+        if hasattr(self, "_cfa_var") and self._cfa_var:
+            if sys.version_info[0] > 2:
+                return self.__unicode__()
+            else:
+                return unicode(self).encode('utf-8')
+        else:
+            return self._nc_var.__repr__()
+
+
+    def __unicode__(self):
+        ncdump = ['{}\n'.format(type(self))]
+        cfa_var = self._cfa_var
+        # write the variable type, name and dimensions
+        ncdump.append("{} {}({})\n".format(
+                cfa_var.getType(),
+                cfa_var.getName(),
+                ",".join(cfa_var.getDimensions())
+            )
+        )
+        # add the metadata
+        cfa_meta = cfa_var.getMetadata()
+        for m in cfa_meta:
+            ncdump.append("    {}: {} \n".format(m, cfa_meta[m]))
+        # get the unlimited dimensions
+        unlimdims = []
+        for dimname in cfa_var.getDimensions():
+            dim = self.parent.dimensions[dimname]
+            if dim._nc_dim.isunlimited():
+                unlimdims.append(dimname)
+
+        ncdump.append("unlimited dimensions: {}\n".format(
+            ",".join(unlimdims))
+        )
+        # get the current shape
+        ncdump.append("current shape = ({})\n".format(
+                ",".join([str(x) for x in cfa_var.shape()])
+            )
+        )
+        # add the fillvalue
+        if "_FillValue" in cfa_meta:
+            ncdump.append("filling on, _FillValue of {} used\n".format(
+                cfa_meta["_FillValue"])
+            )
+        else:
+            ncdump.append("filling off\n")
+        # add the partition information
+        ncdump.append("partition matrix shape: ({})\n".format(
+            ",".join([str(x) for x in cfa_var.getPartitionMatrixShape()]))
+        )
+        ncdump.append("partition matrix dimensions: ({})".format(
+            ",".join(cfa_var.getPartitionMatrixDimensions())
+        ))
+
+        return "".join(ncdump)
+
+# Function below is for s3Group and s3Dataset classes
+def _group_and_dataset_repr(ncdump, cfa_obj, nc_obj):
+    """This is a generalised function to generate a list to be used in the
+    __repr__ strings for both s3Groups and s3Datasets, as the code is largely
+    identical between them."""
+    # add the metadata
+    cfa_meta = cfa_obj.getMetadata()
+    for m in cfa_meta:
+        ncdump.append("    {}: {} \n".format(m, cfa_meta[m]))
+
+    # The dimensions and variables for the dataset are in the root group
+    # for the s3Dataset.  If the cfa_obj has no getGroup method then itself is
+    # a group
+    if (hasattr(cfa_obj, "getGroup")):
+        grp = cfa_obj.getGroup("root")
+    else:
+        grp = cfa_obj
+    # Variables
+    var_names_dims = ["    variables(dimensions): "]
+    # Dimensions
+    dim_names_sizes = ["    dimensions(sizes): "]
+    for d in grp.getDimensions():
+        cfa_dim = grp.getDimension(d)
+        dim_names_sizes.append("{}({}), ".format(d, cfa_dim.getLen()))
+        # we have to add the dimension variables as well (to the
+        # var_names_dims) as they are only stored as Dimensions in CFA
+        if cfa_dim.getType():
+            var_names_dims.append("{} {}({}), ". format(
+                cfa_dim.getType(), d, d
+            )
+    )
+    # trim the comma, add a line break
+    if len(dim_names_sizes) > 1:
+        dim_names_sizes[-1] = dim_names_sizes[-1][0:-2]
+    dim_names_sizes.append("\n")
+    ncdump.extend(dim_names_sizes)
+
+    # we have to add the dimension variables as well, which are only stored
+    # as Dimensions in CFA
+    for v in grp.getVariables():
+        cfa_var = grp.getVariable(v)
+        var_names_dims.append("{} {}({}), ".format(
+            cfa_var.getType(), v, ", ".join(cfa_var.getDimensions())
+        )
+    )
+    # trim the comma, add a line break
+    if len(var_names_dims) > 1:
+        var_names_dims[-1] = var_names_dims[-1][0:-2]
+    var_names_dims.append("\n")
+    ncdump.extend(var_names_dims)
+
+    # add the group names, and cfa specific groups
+    group_names = ["groups: "]
+    cfa_group_names = ["cfa_groups: "]
+
+    for g in nc_obj.groups:
+        # don't add cfa groups or the root group
+        if not(g == "root"):
+            if (g[0:4] == "cfa_"):
+                cfa_group_names.append("{}, ".format(g))
+            else:
+                group_names.append("{}, ".format(g))
+
+    if len(group_names) > 1:
+        group_names[-1] = group_names[-1][0:-2]
+    group_names.append("\n")
+    ncdump.extend(group_names)
+
+    if len(cfa_group_names) > 1:
+        cfa_group_names[-1] = cfa_group_names[-1][0:-2]
+    ncdump.extend(cfa_group_names)
+
+    return ncdump
+
 class s3Group(object):
     """
        Duplicate the UniData netCDF4 Group class and override some key member
@@ -824,6 +981,28 @@ class s3Group(object):
     @property
     def dimensions(self):
         return self._s3_dimensions
+
+    def __repr__(self):
+        if hasattr(self, "_cfa_grp") and self._cfa_grp:
+            if sys.version_info[0] > 2:
+                return self.__unicode__()
+            else:
+                return unicode(self).encode('utf-8')
+        else:
+            # don't output any info about the cfa groups
+            if self._nc_grp.name[0:4] == "cfa_":
+                return ("cfa_group")
+            else:
+                return self._nc_grp.__repr__()
+
+    def __unicode__(self):
+        ncdump = ['{}\n'.format(type(self))]
+        cfa_grp = self._cfa_grp
+        nc_grp = self._nc_grp
+        ncdump.append("group /{}:\n".format(cfa_grp.getName()))
+        ncdump = _group_and_dataset_repr(ncdump, cfa_grp, nc_grp)
+
+        return "".join(ncdump)
 
     def __getattr__(self, name):
         """Override the __getattr__ for the Group so as to return its
@@ -1167,6 +1346,30 @@ class s3Dataset(object):
             return self._s3_dimensions
         else:
             return self._nc_dataset.dimensions
+
+    def __repr__(self):
+        if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
+            if sys.version_info[0] > 2:
+                return self.__unicode__()
+            else:
+                return unicode(self).encode('utf-8')
+        else:
+            return self._nc_dataset.__repr__()
+
+    def __unicode__(self):
+        # This function is only applicable to S3Datasets with _cfa_dataset
+        # defined.  Therefore we can use the _cfa_dataset information
+        ncdump = ['{}\n'.format(type(self))]
+        cfa_ds = self._cfa_dataset
+        nc_ds = self._nc_dataset
+        # Add the title
+        ncdump.append("root group ({} data model, file format {}, "
+                      "CFA v{}):\n".format(
+                cfa_ds.getFormat(), nc_ds.disk_format, cfa_ds.getCFAVersion()
+            )
+        )
+        ncdump = _group_and_dataset_repr(ncdump, cfa_ds, nc_ds)
+        return ''.join(ncdump)
 
     def _interpret_netCDF_filetype(data):
         """

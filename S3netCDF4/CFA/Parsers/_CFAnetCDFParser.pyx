@@ -78,7 +78,13 @@ class CFA_netCDFParser(CFA_Parser):
             nc_dim = nc_object.dimensions[dim]
             if dim in cfa_object.getDimensions():
                 cfa_dim = cfa_object.getDimension(dim)
-                # create the s3Dimension with links to the cfa dimension and nc_dim
+                # set the datatype for the cfa_dim by getting the type from the
+                # associated variable
+                if dim in nc_object.variables:
+                    nc_var = nc_object.variables[dim]
+                    cfa_dim.setType(nc_var.dtype)
+                # create the s3Dimension with links to the cfa dimension and
+                # nc_dim
                 s3_object._s3_dimensions[dim] = s3Dimension(
                                                     nc_dim=nc_dim,
                                                     cfa_dim=cfa_dim,

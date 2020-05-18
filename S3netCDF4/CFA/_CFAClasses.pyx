@@ -629,6 +629,7 @@ cdef class CFAVariable:
         | np.ndarray     getPartitionMatrixShape()       |
         | list           getPartitionMatrixDimensions()  |
         | CFAPartition   getPartition(array<int> index)  |
+        | CFAPartition   getPartitionValues(key="location")|
         | void           writePartition(CFAPartition)    |
         | void           writeInitialPartitionInfo()     |
         | void           createNCPartition()             |
@@ -740,6 +741,7 @@ cdef class CFAVariable:
         for s in range(0, key_l):
             key_ts = type(key[s])
             if (key_ts in [int, np.int32, np.int64, np.int16, np.int8]):
+#                slices[s,:] = [key[s], key[s]+1, 1]
                 slices[s,:] = [key[s], key[s]+1, 1]
             elif key_ts is slice:
                 key_list = key[s].indices(shape[s])
