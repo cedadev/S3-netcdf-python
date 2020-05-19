@@ -741,7 +741,6 @@ cdef class CFAVariable:
         for s in range(0, key_l):
             key_ts = type(key[s])
             if (key_ts in [int, np.int32, np.int64, np.int16, np.int8]):
-#                slices[s,:] = [key[s], key[s]+1, 1]
                 slices[s,:] = [key[s], key[s]+1, 1]
             elif key_ts is slice:
                 key_list = key[s].indices(shape[s])
@@ -1165,7 +1164,10 @@ cdef class CFAVariable:
                     index = np.array(p["index"], 'i')
                     it = tuple(index)
                     ncp.variables["index"][it] = index
+                    # +1 here as CFA 0.4 has location indices as inclusive,
+                    # whereas Python and CFA 0.5 have them as exclusive
                     ncp.variables["location"][it] = p["location"]
+                    ncp.variables["location"][it][:,1] += 1
                     ncp.variables["ncvar"][it] = p["subarray"]["ncvar"]
                     ncp.variables["file"][it] = p["subarray"]["file"]
                     ncp.variables["format"][it] = p["subarray"]["format"]
@@ -1216,7 +1218,10 @@ cdef class CFAVariable:
             shape  = ncp.variables["shape"][it.multi_index]
             file   = ncp.variables["file"][it.multi_index]
             format = ncp.variables["format"][it.multi_index]
+            # -1 here as CFA 0.4 has location indices as inclusive,
+            # whereas Python and CFA 0.5 have them as exclusive
             location = ncp.variables["location"][it.multi_index]
+            location[:,1] -= 1
             index = ncp.variables["index"][it.multi_index]
             # build the partition JSON with the subarray
             partition_dict = {
@@ -1252,7 +1257,7 @@ cdef class CFAVariable:
         # not
         if not "cf_role" in cfa_metadata:
             self.cf_role = ""
-            return False
+            return
         else:
             self.cf_role = cfa_metadata["cf_role"]
 

@@ -117,8 +117,8 @@ def print_group_info(input_grp, variable, partition, metadata):
         print_dimensions(input_grp, metadata)
 
         # print the variables in the group
+        print("    variables:")
         if variable == "all":
-            print("    variables:")
             print_variables(input_grp, partition, metadata)
         else:
             input_var = input_grp.getVariable(variable)
@@ -145,7 +145,11 @@ def print_dataset_info(input_dataset, group, variable, partition, metadata):
         print("dimensions:")
         print_dimensions(root_grp, metadata)
         print("variables:")
-        print_variables(root_grp, partition, metadata)
+        if variable == "all":
+            print_variables(root_grp, partition, metadata)
+        else:
+            input_var = root_grp.getVariable(variable)
+            print_variable_info(input_var, partition, metadata)
         # print the group names, unless just the root group is requested
         if (group != "root"):
             if (variable == "none"):
@@ -212,7 +216,7 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "-variable", action="store", default="none",
+        "-variable", action="store", default="all",
         metavar="<variable>",
         help=(
             "Name of a variable to print information about, print all or no" "variables. "
@@ -252,7 +256,7 @@ if __name__ == "__main__":
     if args.variable:
         variable = args.variable
     else:
-        variable = "none"
+        variable = "all"
 
     if args.partition:
         # convert the partition string to a numpy array

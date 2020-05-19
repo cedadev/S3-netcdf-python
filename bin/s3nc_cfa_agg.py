@@ -80,7 +80,6 @@ def add_var_dims(in_object, out_object, axis, fname):
                 # get the location along the aggregation axis in the Master Array,
                 # from the axis dimension variable
                 location = np.zeros([n_dims, 2],'i')
-
             if axis in in_var.dimensions:
                 axis_dim_var = in_object.variables[axis]
                 # get the axis resolution - i.e. the difference for each step
@@ -91,7 +90,7 @@ def add_var_dims(in_object, out_object, axis, fname):
                     axis_res = 1
                 # set the location for the aggregating axis dimension
                 location[axis_dim_n, 0] = int(axis_dim_var[0] / axis_res)
-                location[axis_dim_n, 1] = int(axis_dim_var[-1] / axis_res)
+                location[axis_dim_n, 1] = int(axis_dim_var[-1] / axis_res) + 1
                 # set the locations for the other dimensions - equal to 0 to the
                 # shape of the array
                 for d, dim in enumerate(out_var.dimensions):
@@ -103,7 +102,6 @@ def add_var_dims(in_object, out_object, axis, fname):
                 for d in range(0, len(in_var.shape)):
                     location[d, 0] = 0
                     location[d, 1] = in_var.shape[d]
-            
 
             # get the datamodel from the parent object
             try:
