@@ -12,5 +12,5 @@
             "api": "S3v4"
         }
     },
-    "cache_location": "{{ /Users/dhk63261/.cache }}"
+    "cache_location": "{{ cache_location }}"
 }
