@@ -9,8 +9,7 @@ import numpy as np
 # Dataset (Master Array File) location, this is on the Caringo object store,
 # using the alias defined in the config file in the user's
 # home directory: ~/.s3nc.json
-#data_location = "s3://cedadev-o/cmip6/CMIP/MOHC/HadGEM3-GC31-MM/historical/r1i1p1f3/day/tas/gn/tas_day_HadGEM3-GC31-MM_historical_r1i1p1f3_gn.nc"
-data_location = "/Users/dhk63261/Test/s3Dataset_test_dev_CFA4_cfa0.5.nc"
+data_location = "s3://cedadev-o/cmip6/CMIP/MOHC/HadGEM3-GC31-MM/historical/r1i1p1f3/day/tas/gn/tas_day_HadGEM3-GC31-MM_historical_r1i1p1f3_gn.nc"
 var_name = "tas"
 
 # We open the Master Array File just like opening a netCDF Dataset
