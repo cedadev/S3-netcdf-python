@@ -1,7 +1,6 @@
 import os
 from setuptools import Extension, setup
 from Cython.Build import cythonize
-import numpy
 
 with open(os.path.join(os.path.dirname(__file__), 'README.md')) as readme:
     README = readme.read()
@@ -15,45 +14,94 @@ s3nc_define_macros = [(
 
 s3nc_extra_compile_args = ['-fno-strict-aliasing', '-O3']
 
+import numpy
 extensions = [
     Extension(
-            name="S3netCDF4.Backends.*",
-            sources=["S3netCDF4/Backends/*.pyx"],
+            name="S3netCDF4.Backends._s3aioFileObject",
+            sources=["S3netCDF4/Backends/_s3aioFileObject.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+            inplace=True
+    ),
+    Extension(
+            name="S3netCDF4.Backends._s3FileObject",
+            sources=["S3netCDF4/Backends/_s3FileObject.pyx"],
             define_macros=s3nc_define_macros,
             extra_compile_args=s3nc_extra_compile_args,
             include_dirs=[numpy.get_include()],
     ),
     Extension(
-            name="S3netCDF4.CFA._CFA*",
-            sources=["S3netCDF4/CFA/_CFA*.pyx"],
+            name="S3netCDF4.CFA._CFAClasses",
+            sources=["S3netCDF4/CFA/_CFAClasses.pyx"],
             define_macros=s3nc_define_macros,
             extra_compile_args=s3nc_extra_compile_args,
             include_dirs=[numpy.get_include()],
     ),
     Extension(
-            name="S3netCDF4.CFA.Parsers._CFA*",
-            sources=["S3netCDF4/CFA/Parsers/_CFA*.pyx"],
+            name="S3netCDF4.CFA._CFAExceptions",
+            sources=["S3netCDF4/CFA/_CFAExceptions.pyx"],
             define_macros=s3nc_define_macros,
             extra_compile_args=s3nc_extra_compile_args,
             include_dirs=[numpy.get_include()],
     ),
     Extension(
-            name="S3netCDF4.Managers.*",
-            sources=["S3netCDF4/Managers/*.pyx"],
+            name="S3netCDF4.CFA._CFASplitter",
+            sources=["S3netCDF4/CFA/_CFASplitter.pyx"],
             define_macros=s3nc_define_macros,
             extra_compile_args=s3nc_extra_compile_args,
             include_dirs=[numpy.get_include()],
     ),
     Extension(
-            name="S3netCDF4.*",
-            sources=["S3netCDF4/*.pyx"],
+            name="S3netCDF4.CFA.Parsers._CFAnetCDFParser",
+            sources=["S3netCDF4/CFA/Parsers/_CFAnetCDFParser.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4.CFA.Parsers._CFAParser",
+            sources=["S3netCDF4/CFA/Parsers/_CFAParser.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4.Managers._ConfigManager",
+            sources=["S3netCDF4/Managers/_ConfigManager.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4.Managers._ConnectionPool",
+            sources=["S3netCDF4/Managers/_ConnectionPool.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4.Managers._FileManager",
+            sources=["S3netCDF4/Managers/_FileManager.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4._Exceptions",
+            sources=["S3netCDF4/_Exceptions.pyx"],
+            define_macros=s3nc_define_macros,
+            extra_compile_args=s3nc_extra_compile_args,
+            include_dirs=[numpy.get_include()],
+    ),
+    Extension(
+            name="S3netCDF4._s3netCDF4",
+            sources=["S3netCDF4/_s3netCDF4.pyx"],
             define_macros=s3nc_define_macros,
             extra_compile_args=s3nc_extra_compile_args,
             include_dirs=[numpy.get_include()],
     ),
 ]
-
-print(extensions)
 
 setup(
     name='S3netCDF4',
@@ -63,7 +111,7 @@ setup(
       'numpy',
       'cython',
       'netcdf4',
-      'botocore',
+      'botocore==1.15.15',
       'aiobotocore==0.12.0',
       'psutil',
     ],
@@ -86,5 +134,5 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.7',
-    ],
+    ]
 )
