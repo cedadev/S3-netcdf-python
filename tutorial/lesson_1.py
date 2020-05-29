@@ -7,8 +7,8 @@ from S3netCDF4._s3netCDF4 import s3Dataset as Dataset
 import numpy as np
 
 # Dataset (Master Array File) location, this is on the Caringo object store,
-# using the alias defined in the config file in the user's
-# home directory: ~/.s3nc.json
+# using the alias defined in the config file in the user's home directory:
+# ~/.s3nc.json
 data_location = "s3://cedadev-o/cmip6/CMIP/MOHC/HadGEM3-GC31-MM/historical/r1i1p1f3/day/tas/gn/tas_day_HadGEM3-GC31-MM_historical_r1i1p1f3_gn.nc"
 var_name = "tas"
 
@@ -34,4 +34,4 @@ print("TAS:       ", var)
 var_data = var[:360, 45, 45]
 
 # calculate seasonal means
-print(np.mean(var_data[0:90]), np.mean(var_data[90:180]), np.mean(var_data[180:240]), np.mean(var_data[240:360]))
+#print(np.mean(var_data[0:90]), np.mean(var_data[90:180]), np.mean(var_data[180:240]), np.mean(var_data[240:360]))

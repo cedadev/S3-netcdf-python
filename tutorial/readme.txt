@@ -9,6 +9,8 @@ Please see the following webpage to set up the account:
 https://help.jasmin.ac.uk/article/4847-using-the-jasmin-object-store
 
 > module load jaspy
+> create a venv
+> pip install -e git+https://github.com/cedadev/S3-netcdf-python.git@version2
 
 Config
 ------
@@ -35,7 +37,7 @@ Copy this text into the file opened in nano:
     "cache_location": "~/.cache"
 }
 
-replace "access_key" and "secret_key" with the credentials you got from the Caringo 
+replace "access_key" and "secret_key" with the credentials you got from the Caringo
 Swarm portal.
 
 Contents

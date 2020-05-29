@@ -11,28 +11,20 @@ from botocore.exceptions import ClientError
 import botocore.session
 
 from S3netCDF4.Managers._ConnectionPool import ConnectionPool
+from S3netCDF4.Managers._ConfigManager import Config
 from S3netCDF4._Exceptions import APIException, IOException
 
 class s3FileObject(io.BufferedIOBase):
     """Custom file object class, inheriting from Python io.Base, to read from
     an S3 object store / AWS cloud storage."""
 
-    """Maximum upload size for the object.  We can split large objects into
-    multipart upload.  No parallelism, beyond what the botocore library
-    implements, at the moment."""
-    MAXIMUM_PART_SIZE = 50 * 1024 * 1024 # set at 50MB, minimum multipart
-                                         # upload is 5MB
-    MAXIMUM_PARTS = 4                    # the number of parts written to before
-                                         # they are uploaded
-    # enable / disable multipart upload and download
-    ENABLE_MULTIPART_DOWNLOAD = True
-    ENABLE_MULTIPART_UPLOAD = True
-    # timeouts for connections
-    CONNECT_TIMEOUT = 30.0
-    READ_TIMEOUT = 30.0
-
     """Static connection pool object - i.e. shared across the file objects."""
     _connection_pool = ConnectionPool()
+
+    # The defaults for MAXIMUM_PART_SIZE etc. are now assigned in
+    # __init__ if no values are found in ~/.s3nc.json
+    """Static config object for the backend options"""
+    _config = Config()
 
     def _get_server_bucket_object(uri):
         """Get the server name from the URI"""
@@ -63,10 +55,9 @@ class s3FileObject(io.BufferedIOBase):
         return server, bucket, path
 
     def __init__(self, uri, credentials, mode='r', create_bucket=True,
-                 part_size=MAXIMUM_PART_SIZE,
-                 max_parts=MAXIMUM_PARTS,
-                 multipart_upload=ENABLE_MULTIPART_UPLOAD,
-                 multipart_download=ENABLE_MULTIPART_DOWNLOAD):
+                 part_size=None, max_parts=None, multipart_upload=None,
+                 multipart_download=None, connect_timeout=None,
+                 read_timeout=None):
         """Initialise the file object by creating or reusing a connection in the
         connection pool."""
         # get the server, bucket and the key from the endpoint url
@@ -74,13 +65,59 @@ class s3FileObject(io.BufferedIOBase):
         self._closed = False            # set the file to be not closed
         self._mode = mode
         self._seek_pos = 0
-        self._part_size = part_size
-        self._max_parts = max_parts
         self._buffer = [io.BytesIO()]   # have a list of objects that can stream
         self._credentials = credentials
         self._create_bucket = create_bucket
-        self._multipart_upload = multipart_upload
-        self._multipart_download = multipart_download
+        self._uri = uri
+
+        """Either get the backend config from the parameters, or the config file
+        or use defaults."""
+        if "s3FileObject" in s3FileObject._config["backends"]:
+            backend_config = s3FileObject._config["backends"]["s3FileObject"]
+        else:
+            backend_config = {}
+
+        if part_size:
+            self._part_size = part_size
+        elif "maximum_part_size" in backend_config:
+            self._part_size = backend_config["maximum_part_size"]
+        else:
+            self._part_size = 50 * 1024 * 1024
+
+        if max_parts:
+            self._max_parts = max_parts
+        elif "maximum_parts" in backend_config:
+            self._max_parts = backend_config["maximum_parts"]
+        else:
+            self._max_parts = 8
+
+        if multipart_upload:
+            self._multipart_upload = multipart_upload
+        elif "multipart_upload" in backend_config:
+            self._multipart_upload = backend_config["multipart_upload"]
+        else:
+            self._multipart_upload = True
+
+        if multipart_download:
+            self._multipart_download = multipart_download
+        elif "multipart_download" in backend_config:
+            self._multipart_download = backend_config["multipart_download"]
+        else:
+            self._multipart_download = True
+
+        if connect_timeout:
+            self._connect_timeout = connect_timeout
+        elif "connect_timeout" in backend_config:
+            self._connect_timeout = backend_config["connect_timeout"]
+        else:
+            self._connect_timeout = 30.0
+
+        if read_timeout:
+            self._read_timeout = read_timeout
+        elif "read_timeout" in backend_config:
+            self._read_timeout = backend_config["read_timeout"]
+        else:
+            self._read_timeout = 30.0
 
     def __enter__(self):
         """Create the connection on an enter."""
@@ -147,8 +184,8 @@ class s3FileObject(io.BufferedIOBase):
             try:
                 session = botocore.session.get_session()
                 config = botocore.config.Config(
-                    connect_timeout=s3FileObject.CONNECT_TIMEOUT,
-                    read_timeout=s3FileObject.READ_TIMEOUT
+                    connect_timeout=self._connect_timeout,
+                    read_timeout=self._connect_timeout
                 )
                 s3c = session.create_client(
                           "s3",
