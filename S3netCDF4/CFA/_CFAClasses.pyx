@@ -770,7 +770,7 @@ cdef class CFAVariable:
                     )
         # now we have the slices we can determine the partitions, using the
         # partition shape
-        i_per_part = (shape / self.pmshape).astype(np.int32)
+        i_per_part = (shape / self.pmshape)
         slice_range = []
         for s in range(0, key_l):
             # append the start / stop of the partition indices for each axis
