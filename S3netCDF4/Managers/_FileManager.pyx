@@ -40,7 +40,7 @@ class FileObject(object):
 
     def __init__(self):
         """Initialise remote system and async system to False
-        Initialise file handle to parameter."""
+        Initialise file handle to None.  Default to read"""
         self._remote_system = False
         self._async_system = False
         self._fh = None
@@ -148,13 +148,15 @@ class OpenFileRecord(object):
     OPEN_NEW_IN_MEMORY = 0
     OPEN_EXISTS_IN_MEMORY = 1
     KNOWN_EXISTS_ON_STORAGE = 2
-    OPEN_NEW_ON_DISK = 3
-    OPEN_EXISTS_ON_DISK = 4
+    KNOWN_EXISTS_ON_DISK = 3
+    OPEN_NEW_ON_DISK = 4
+    OPEN_EXISTS_ON_DISK = 5
     DOES_NOT_EXIST = 100
 
     open_state_mapping = {
         OPEN_NEW_IN_MEMORY : "OPEN_NEW_IN_MEMORY",
         OPEN_EXISTS_IN_MEMORY : "OPEN_EXISTS_IN_MEMORY",
+        KNOWN_EXISTS_ON_DISK : "KNOWN_EXISTS_ON_DISK",
         KNOWN_EXISTS_ON_STORAGE : "KNOWN_EXISTS_ON_STORAGE",
         OPEN_NEW_ON_DISK : "OPEN_NEW_ON_DISK",
         OPEN_EXISTS_ON_DISK : "OPEN_EXISTS_ON_DISK",
@@ -328,11 +330,14 @@ class FileManager(object):
         key = generate_key(url)
         if key in self._open_files:
             # update the open state
-            if self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
-                self._open_files[key].open_state = OpenFileRecord.OPEN_EXISTS_IN_MEMORY
-            elif self._open_files[key].open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
-                self._open_files[key].open_state = OpenFileRecord.OPEN_EXISTS_ON_DISK
-
+            if (self._open_files[key].open_state ==
+                  OpenFileRecord.OPEN_NEW_IN_MEMORY):
+                self._open_files[key].open_state =\
+                  OpenFileRecord.OPEN_EXISTS_IN_MEMORY
+            elif (self._open_files[key].open_state ==
+                  OpenFileRecord.OPEN_NEW_ON_DISK):
+                self._open_files[key].open_state =\
+                   OpenFileRecord.OPEN_EXISTS_ON_DISK
             # modify the last accessed time
             self._open_files[key].last_accessed = time.time()
         else:
@@ -396,7 +401,7 @@ class FileManager(object):
         # get the size and see if there is enough memory to create the array
         target_array_size = np.prod(target_array_shape)
         available_memory = virtual_memory().available
-        if target_array_size > 0:#available_memory:
+        if target_array_size > available_memory:
             # construct a name for the memory mapped array
             mmap_name = os.path.join(
                 FileManager._config['cache_location'] + "/",
