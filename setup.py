@@ -115,7 +115,6 @@ setup(
       'aiobotocore==0.12.0',
       'psutil',
     ],
-    language_level=3,
     ext_modules=cythonize(extensions),
     zip_safe=False,
     include_package_data=True,

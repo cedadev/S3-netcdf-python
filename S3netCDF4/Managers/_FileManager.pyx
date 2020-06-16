@@ -18,9 +18,10 @@ import asyncio
 import inspect
 import time
 import os
-from psutil import virtual_memory
+import resource
+from psutil import virtual_memory, Process
 from urllib.parse import urlparse
-from collections import namedtuple
+from collections import OrderedDict
 from hashlib import sha1
 import numpy as np
 
@@ -103,11 +104,11 @@ class FileObject(object):
         return data
 
     def close(self, data=None):
-        """Close the Dataset."""
+        """Close the file."""
         # write any in-memory data into the file, if it is a remote file
         if ('w' in self._mode and self._remote_system and data is not None):
             # if it's an async system them write until completed
-            if self._async_system:
+            if self.async_system:
                 self._event_loop.run_until_complete(
                     self.file_handle.write(data)
                 )
@@ -115,7 +116,7 @@ class FileObject(object):
                 self.file_handle.write(data)
 
         # close the file handle
-        if self._async_system:
+        if self.async_system:
             self._event_loop.run_until_complete(
                 self.file_handle.close()
             )
@@ -125,17 +126,34 @@ class FileObject(object):
     def glob(self):
         """List the files at the path stored in file_handle, matching the
         pattern in pattern"""
-        if self._async_system:
+        if self.async_system:
             # schedule a task to read the entire file
             el = self._event_loop
-            glob_task = el.create_task(
-                self.file_handle.glob()
-            )
+            glob_task = el.create_task(self.file_handle.glob())
             el.run_until_complete(glob_task)
             files = glob_task.result()
         else:
             files = self.file_handle.glob()
         return files
+
+    def size(self):
+        """Return the size of a file, either on the remote system or the disk,
+        async or synchronously.  On the file system this will leave the file
+        pointer at position 0, so don't use halfway through a write, unless you
+        seek back to the previous position"""
+        if self.remote_system:
+            if self.async_system:
+                el = self._event_loop
+                size_task = el.create_task(self.file_handle._getsize())
+                el.run_until_complete(size_task)
+                size = size_task.result()
+            else:
+                size = self.file_handle._getsize()
+        else:
+            self.file_handle.seek(0, os.SEEK_END)
+            size = self.file_handle.tell()
+            self.file_handle.seek(0)
+        return size
 
 class OpenFileRecord(object):
     """An object that contains a record of a file in the FileManager.
@@ -145,12 +163,12 @@ class OpenFileRecord(object):
     internal representation of the file within the system."""
 
     """Potential open states"""
-    OPEN_NEW_IN_MEMORY = 0
-    OPEN_EXISTS_IN_MEMORY = 1
-    KNOWN_EXISTS_ON_STORAGE = 2
-    KNOWN_EXISTS_ON_DISK = 3
-    OPEN_NEW_ON_DISK = 4
-    OPEN_EXISTS_ON_DISK = 5
+    OPEN_NEW_IN_MEMORY = 1
+    OPEN_EXISTS_IN_MEMORY = 2
+    KNOWN_EXISTS_ON_STORAGE = 3
+    OPEN_NEW_ON_DISK = 11
+    OPEN_EXISTS_ON_DISK = 12
+    KNOWN_EXISTS_ON_DISK = 13
     DOES_NOT_EXIST = 100
 
     open_state_mapping = {
@@ -202,7 +220,7 @@ class FileManager(object):
     _config = Config()
 
     def __init__(self):
-        self._open_files = {}
+        self._open_files = OrderedDict()
 
     @property
     def files(self):
@@ -306,19 +324,77 @@ class FileManager(object):
             _fo._async_system = False
         return _fo
 
+    def __shuffle_files_filehandle(self):
+        """This function moves files out of memory by closing them.  It then
+        marks them in the file manager as either "KNOWN_EXISTS_ON_DISK", or
+        "KNOWN_EXISTS_ON_STORAGE".  This indicates that the next time the files
+        are opened, they are opened in append mode."""
+        # get the subset where the status is "EXISTS_ON_DISK"
+        exists_on_disk = OrderedDict({
+            k: v for k, v in self._open_files.items() if v.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK
+        })
+        # sort the dictionary on the last_accessed time
+        sorted_time_accessed = sorted(
+            exists_on_disk.items(),
+            key=lambda kvp: kvp[1].last_accessed
+        )
+        cp = 0
+        # current file to close
+        while FileManager.__file_greater_than_filehandles():
+            # get the open file record
+            file_key = sorted_time_accessed[cp][0]
+            file_obj = sorted_time_accessed[cp][1]
+            # close the data object and file object
+            if file_obj._data_object:
+                file_obj._data_object.close()
+            if file_obj.file_object:
+                file_obj.file_object.close()
+            # mark as KNOWN to the system - open in append mode next time
+            file_obj.open_state = OpenFileRecord.KNOWN_EXISTS_ON_DISK
+            cp += 1
+
+    @staticmethod
+    def __size_greater_than_memory(size):
+        # Provide a function to measure the size of the requested file against
+        # the available memory.
+        # This will be used when checking whether files should be shuffled and
+        # as a parameter in the __shuffle_files function
+        available_memory = virtual_memory().available
+        print(size/(1024*1024*1024), available_memory/(1024*1024*1024))
+        return size > available_memory
+
+    @staticmethod
+    def __file_greater_than_filehandles(size=0):
+        # Provide a function to measure the number of file handles against that
+        # imposed by ulimit
+        # This will be used when checking whether files should be shuffled and
+        # as a parameter in the __shuffle_files function
+        # Size has to be passed in so that __shuffle_files function can use this
+        # or __size_greater_than_memory - i.e. they have the same parameter
+        # signature
+        proc = Process()
+        n_open_files = len(proc.open_files())
+        # get the ulimit -n number of permitted open files
+        soft_limit, hard_limit = resource.getrlimit(
+            resource.RLIMIT_NOFILE)
+        # +4 here as we want to check if we can open another file
+        # next time and we need two file handles at one point
+        # when we open the file and then open the netCDF
+        return (n_open_files + 4 >= soft_limit)
+
     def request_file(self, url, size=0, mode="r"):
         """Request a file, and return a file object to it.
         1. Files returned from this function are managed.
         2. They are stored in a dictionary with their file object, size, last
            time they were accessed and whether they are in memory at the moment.
-        3. If a file is requested and there is not enough memory to hold the
-           file then another file is removed from the memory:
+        3. If a file is requested and there is not enough memory or file handles
+           to hold the file then another file is removed from the memory:
            3a. If it is a read-only file it is just thrown out
            3b. If it is a write / append file it is written out to the storage.
         4. When a file is requested in write mode, it is first checked whether
            it has been accessed before.
            4a. If it has then it is read in from the file system (where it was
-           previously written to).
+           previously written to), in append mode.
            4b. If it hasn't then it is created (with CLOBBER - i.e. it is
            overwritten).
         5. When a file is requested in append mode it is checked whether it can
@@ -334,48 +410,75 @@ class FileManager(object):
                   OpenFileRecord.OPEN_NEW_IN_MEMORY):
                 self._open_files[key].open_state =\
                   OpenFileRecord.OPEN_EXISTS_IN_MEMORY
+
             elif (self._open_files[key].open_state ==
                   OpenFileRecord.OPEN_NEW_ON_DISK):
                 self._open_files[key].open_state =\
                    OpenFileRecord.OPEN_EXISTS_ON_DISK
+
+            elif (self._open_files[key].open_state ==
+                  OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
+                if FileManager.__size_greater_than_memory(size):
+                   raise IOException("Out of memory but shuffle")
+
+            elif (self._open_files[key].open_state ==
+                  OpenFileRecord.KNOWN_EXISTS_ON_DISK):
+                # check there is enough filehandles to reopen the file
+                if FileManager.__file_greater_than_filehandles():
+                    self.__shuffle_files_filehandle()
+
             # modify the last accessed time
             self._open_files[key].last_accessed = time.time()
         else:
-            # the file is not currently in memory - check that there is enough
-            # memory available
-            available_memory = virtual_memory().available
-            if size > available_memory:
-                raise IOException("Out of memory")
-            else:
-                # get a file object to the (potentially) remote system
-                try:
-                    fo = self._open(url, mode)
-                except FileNotFoundError:
-                    # if we are reading and the file does not exist
-                    os = OpenFileRecord.DOES_NOT_EXIST
-                    self._open_files[key] = OpenFileRecord(
-                        url = url,
-                        size = 0,
-                        file_object = None,
-                        open_state = os,
-                        last_accessed = 0
-                    )
-                else:
-                    # determine if this filesystem is remote or locally attached disk
-                    if fo.remote_system:
-                        # it's remote so create in memory
-                        os = OpenFileRecord.OPEN_NEW_IN_MEMORY
+            # get a file object to the (potentially) remote system
+            try:
+                fo = self._open(url, mode)
+                # if size is 0 then get the actual size.  This means that the
+                # entire file will be streamed into memory if there is enough
+                # available memory
+                if fo.remote_system:
+                    if size == 0:
+                        actual_size = fo.size()
+                        if FileManager.__size_greater_than_memory(actual_size):
+                            raise MemoryException(
+                                "Trying to stream a file that is greater than "
+                                "the available memory: {}".format(url)
+                            )
+                    # if a size is requested then we can shuffle the contents
+                    # out of memory
                     else:
-                        # it's local so create on the disk
-                        os = OpenFileRecord.OPEN_NEW_ON_DISK
-                    # determine the open state on the file object
-                    self._open_files[key] = OpenFileRecord(
-                        url  = url,
-                        size = size,
-                        file_object = fo,
-                        open_state = os,
-                        last_accessed = time.time()
-                    )
+                        if FileManager.__size_greater_than_memory(size):
+                            raise IOException("Out of memory but shuffle")
+            except FileNotFoundError:
+                # if we are reading and the file does not exist
+                self._open_files[key] = OpenFileRecord(
+                    url = url,
+                    size = 0,
+                    file_object = None,
+                    open_state = OpenFileRecord.DOES_NOT_EXIST,
+                    last_accessed = 0
+                )
+            else:
+                # determine if this filesystem is remote or locally attached disk
+                if fo.remote_system:
+                    # it's remote so create in memory
+                    os = OpenFileRecord.OPEN_NEW_IN_MEMORY
+                else:
+                    # it's local so create on the disk
+                    os = OpenFileRecord.OPEN_NEW_ON_DISK
+                    # check that there are enough file handles to open
+                    # another local file
+                    if FileManager.__file_greater_than_filehandles():
+                        self.__shuffle_files_filehandle()
+
+                # determine the open state on the file object
+                self._open_files[key] = OpenFileRecord(
+                    url  = url,
+                    size = size,
+                    file_object = fo,
+                    open_state = os,
+                    last_accessed = time.time()
+                )
         return self._open_files[key]
 
     def request_array(self, index_list, dtype, base_name=""):
@@ -420,12 +523,3 @@ class FileManager(object):
                 dtype=dtype
             )
         return target_array
-
-    def free_file(self, url):
-        """Free a file from the file manager after it was opened with request_file
-        """
-        # generate the key from hashing the url
-        key = generate_key(url)
-        if key in self._open_files:
-            # update the open state
-            pass

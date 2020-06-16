@@ -134,7 +134,7 @@ class s3FileObject(io.BufferedIOBase):
         return True
 
     def _getsize(self):
-        # Use content length in the head object to determine how the size of
+        # Use content length in the head object to determine the size of
         # the file / object
         # If we are writing then the size should be the buffer size
         try:

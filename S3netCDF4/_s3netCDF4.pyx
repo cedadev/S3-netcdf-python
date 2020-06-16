@@ -430,8 +430,8 @@ class s3Variable(object):
         else:
             self._nc_var.setncatts(attdict)
 
-    def __create_subarray_ncfile(self, index, in_memory=True, mode="w"):
-        """Create the subarray file, either in memory or on disk."""
+    def __open_subarray_ncfile(self, index, in_memory=True, mode="w"):
+        """Open a subarray file, either in memory or on disk"""
         # get the parent dataset to get the information used in its creation,
         # so that it can be mirrored in the creation of the sub-array files
         if hasattr(self.parent, "_nc_grp"):
@@ -462,6 +462,11 @@ class s3Variable(object):
             memory=memory,
             parallel=False
         )
+        return nc_sa_dataset
+
+    def __create_subarray_ncfile(self, index, in_memory=True, mode="w"):
+        """Create the subarray file, either in memory or on disk."""
+        nc_sa_dataset = self.__open_subarray_ncfile(index, in_memory, mode)
         # create the group if this variable is a member of a group
         cfa_grp = self._cfa_var.getGroup()
         if (cfa_grp is not None and cfa_grp.getName() is not "root"):
@@ -552,6 +557,10 @@ class s3Variable(object):
                     )
                     # attach to the request_object (OpenFileRecord)
                     request_object.data_object = nc_sa_dataset
+                    # close the file object if not a remote system as we don't
+                    # need it
+                    if not request_object.file_object.remote_system:
+                        request_object.file_object.close()
                     # write the partition information to the master array var
                     self._cfa_var.writePartition(index.partition)
 
@@ -560,6 +569,9 @@ class s3Variable(object):
                         index, in_memory=False, mode="w"
                     )
                     request_object.data_object = nc_sa_dataset
+                    # close the file object if not a remote system as we don't
+                    # need it
+                    request_object.file_object.close()
                     # write the partition information to the master array
                     self._cfa_var.writePartition(index.partition)
 
@@ -574,6 +586,28 @@ class s3Variable(object):
                     # get the already opened dataset from the request_object
                     # this will be a Dataset on disk
                     nc_sa_dataset = request_object.data_object
+
+                # if it has been created then shuffled off to storage or disk
+                # before then open in append mode
+                elif request_object.open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE:
+                    nc_sa_dataset = self.__open_subarray_ncfile(
+                        index, in_memory=True, mode="a"
+                    )
+                    # attach to the request_object (OpenFileRecord)
+                    request_object.data_object = nc_sa_dataset
+                    if not request_object.file_object.remote_system:
+                        request_object.file_object.close()
+                    # update the request object state
+                    request_object.open_state = OpenFileRecord.OPEN_EXISTS_ON_STORAGE
+
+                elif request_object.open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK:
+                    nc_sa_dataset = self.__open_subarray_ncfile(
+                        index, in_memory=False, mode="a"
+                    )
+                    request_object.data_object = nc_sa_dataset
+                    request_object.file_object.close()
+                    # update the request object state
+                    request_object.open_state = OpenFileRecord.OPEN_EXISTS_ON_DISK
 
                 # get the group if this variable is a member of a group
                 cfa_grp = self._cfa_var.getGroup()
@@ -628,7 +662,9 @@ class s3Variable(object):
                     target_array[index.target] = self._nc_var._FillValue
                 else:
                     # get the netCDF
-                    if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
+                    if (request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY or
+                    request_object.open_state ==
+                    OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
                         # read the netCDF file into memory
                         nc_mem = request_object.file_object.read()
                         nc_sa_dataset = netCDF4.Dataset(
@@ -644,7 +680,9 @@ class s3Variable(object):
                         )
                         # cache the data object
                         request_object.data_object = nc_sa_dataset
-                    elif request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
+                    elif (request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK or
+                    request_object.open_state ==
+                    OpenFileRecord.KNOWN_EXISTS_ON_DISK):
                         nc_sa_dataset = netCDF4.Dataset(
                             index.partition.file,
                             mode="r",
@@ -1091,8 +1129,9 @@ class s3Dataset(object):
         # create the file object, this controls access to the various
         # file backends that are supported
         self._managed_object = self._file_manager.request_file(
-                                        filename, mode=fh_mode
-                                    )
+                                    filename,
+                                    mode=fh_mode
+                               )
 
         # set the file up for write mode
         if mode == 'w':
@@ -1132,11 +1171,16 @@ class s3Dataset(object):
                 )
             else:
                 # this is a non remote file, i.e. just on the disk
+                # close the file object, as we don't need it anymore and free
+                # up file handles
+                self._managed_object.file_object.close()
+                # write the netCDF file
                 self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
+            # manage the interactions with the data_object
             self._managed_object.data_object = self._nc_dataset
         # handle read-only mode
         elif mode == 'r':
@@ -1164,6 +1208,9 @@ class s3Dataset(object):
                     keepweakref=keepweakref, memory=nc_bytes, **kwargs
                 )
             else:
+                # close the file object, as we don't need it anymore and free
+                # up file handles
+                self._managed_object.file_object.close()
                 # create the ncDataset
                 self._nc_dataset = netCDF4.Dataset(
                     filename, mode=mode, clobber=clobber,
@@ -1194,13 +1241,26 @@ class s3Dataset(object):
         for file in self._file_manager.files:
             # close the SubArray file and return the bytes
             file_obj = self._file_manager.files[file]
+            # don't attempt to close already closed file
+            if (file_obj.open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK or
+                file_obj.open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
+                continue
             # get the netCDF file from memory via the data_object member of
             # OpenFileRecord - only for write
-            if (self._mode == 'w'):
-                nc_bytes = file_obj.data_object.close()
-                file_obj.file_object.close(nc_bytes)
-            elif file_obj.file_object:
-                file_obj.file_object.close()
+            if (self._mode == 'w' or self._mode == 'a' or self._mode == 'r+'):
+                if file_obj.file_object.remote_system:
+                    nc_bytes = file_obj.data_object.close()
+                    file_obj.file_object.close(nc_bytes)
+                else:
+                    if file_obj.data_object:
+                        file_obj.data_object.close()
+                    if file_obj.file_object:
+                        file_obj.file_object.close()
+            else:
+                if file_obj.data_object:
+                    file_obj.data_object.close()
+                if file_obj.file_object:
+                    file_obj.file_object.close()
 
     def createDimension(self, dimname, size=None,
                         axis_type="U", metadata={}):

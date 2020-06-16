@@ -5,6 +5,8 @@
 class IOException(BaseException):
     pass
 
+class MemoryException(BaseException):
+    pass
 
 class APIException(BaseException):
     pass
