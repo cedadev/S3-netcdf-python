@@ -14,7 +14,7 @@
     },
     "backends": {
         "s3aioFileObject" : {
-            "maximum_part_size": 52428800,
+            "maximum_part_size": "50MB",
             "maximum_parts": 8,
             "enable_multipart_download": true,
             "enable_multipart_upload": true,
@@ -22,7 +22,7 @@
             "read_timeout": 30.0
         },
         "s3FileObject" : {
-            "maximum_part_size": 52428800,
+            "maximum_part_size": "50MB",
             "maximum_parts": 4,
             "enable_multipart_download": true,
             "enable_multipart_upload": true,
@@ -31,5 +31,6 @@
 
         }
     },
-    "cache_location": "{{ cache_location }}"
+    "cache_location": "{{ cache_location }}",
+    "free_memory_limit": "{{ free_memory_limit }}"
 }

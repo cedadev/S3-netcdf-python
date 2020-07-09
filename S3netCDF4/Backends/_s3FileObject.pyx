@@ -329,20 +329,20 @@ class s3FileObject(io.BufferedIOBase):
             # upload size? split if it is
             data_buf = self._buffer[buffer_part]
             data_len = data_buf.tell()
-            if data_len >= s3FileObject.MAXIMUM_PART_SIZE:
+            if data_len >= self._part_size:
                 data_buf.seek(0)
                 data_pos = 0
                 # split the file up
                 while data_pos < data_len:
                     new_buffer.append(io.BytesIO())
                     # copy the data - don't overstep the buffer
-                    if data_pos + s3FileObject.MAXIMUM_PART_SIZE >= data_len:
+                    if data_pos + self._part_size >= data_len:
                         sub_data = data_buf.read(data_len-data_pos)
                     else:
-                        sub_data = data_buf.read(s3FileObject.MAXIMUM_PART_SIZE)
+                        sub_data = data_buf.read(self._part_size)
                     new_buffer[-1].write(sub_data)
                     # increment to next
-                    data_pos += s3FileObject.MAXIMUM_PART_SIZE
+                    data_pos += self._part_size
 
                 # free the old memory
                 self._buffer[buffer_part].close()
@@ -503,7 +503,7 @@ class s3FileObject(io.BufferedIOBase):
                 # if the size is less than the MAXIMUM UPLOAD SIZE
                 # then just write the data
                 size = self._buffer[0].tell()
-                if self._current_part == 1 and size < s3FileObject.MAXIMUM_PART_SIZE:
+                if self._current_part == 1 and size < self._part_size:
                     if self._create_bucket:
                         # check whether the bucket exists and create if not
                         bucket_list = self._get_bucket_list()

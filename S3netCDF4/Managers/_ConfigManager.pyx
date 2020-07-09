@@ -31,19 +31,21 @@ def convert_file_size_string(value):
                          "EB" : 1e15,
                          "ZB" : 1e18,
                          "YB" : 1e21}
-    if value.endswith(file_format_sizes):
-        suffix = value[-2:]
-        size = int(value[:-2])
-    elif value[-1] == "B":
-        suffix = "B"
-        size = int(value[:-1])
+    if isinstance(value, str):
+        if value.endswith(file_format_sizes):
+            suffix = value[-2:]
+            size = int(value[:-2])
+        elif value[-1] == "B":
+            suffix = "B"
+            size = int(value[:-1])
+        else:
+            suffix = "B"
+            size = int(value)
+        # multiply by scalar
+        size *= file_format_scale[suffix]
+        return size
     else:
-        suffix = "B"
-        size = int(value)
-    # multiply by scalar
-    size *= file_format_scale[suffix]
-    return size
-
+        return value
 
 def interpret_config_file(node, keys_to_convert):
     """Recursively search the dictionary for keys to convert, and convert them
@@ -89,9 +91,9 @@ class Config(object):
             # add the filename to the config so we can refer to it in error
             # messages
             self._sl_user_config["filename"] = sl_config_path
-            # we currently have no keys to convert as there are no numeric
-            # fields in the config file at the moment
-            keys_to_convert = []
+            # keys to convert between text sizes and integer sizes
+            # (e.g.) 50MB to 50*1024*1024
+            keys_to_convert = ["maximum_part_size", "free_memory_limit"]
             # interpret the config file, converting the above keys
             interpret_config_file(self._sl_user_config, keys_to_convert)
             # close the config file

@@ -315,7 +315,8 @@ class s3aioFileObject(object):
                 data_buf = io.BytesIO()
 
                 for p in range(0, n_parts):
-                    task = asyncio.create_task(self._read_partial_file(
+                    event_loop = asyncio.get_event_loop()
+                    task = event_loop.create_task(self._read_partial_file(
                         p, part_size
                     ))
                     tasks.append(task)
@@ -419,7 +420,8 @@ class s3aioFileObject(object):
             self._buffer[buffer_part].seek(0)
             # upload here
             # schedule the uploads
-            task = asyncio.create_task(self._conn_obj.conn.upload_part(
+            event_loop = asyncio.get_event_loop()
+            task = event_loop.create_task(self._conn_obj.conn.upload_part(
                 Bucket=self._bucket,
                 Key=self._path,
                 UploadId=self._upload_id,

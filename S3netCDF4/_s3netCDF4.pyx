@@ -430,7 +430,8 @@ class s3Variable(object):
         else:
             self._nc_var.setncatts(attdict)
 
-    def __open_subarray_ncfile(self, index, in_memory=True, mode="w"):
+    def __open_subarray_ncfile(self, index, request_object,
+                               in_memory=False, mode="r"):
         """Open a subarray file, either in memory or on disk"""
         # get the parent dataset to get the information used in its creation,
         # so that it can be mirrored in the creation of the sub-array files
@@ -444,7 +445,16 @@ class s3Variable(object):
         # creation parameters
         if in_memory:
             diskless = True
-            memory = 0
+            # if "append" mode requested for in memory, then we have to open in
+            # "write" mode as in memory isn't supported in "append" mode.  We'll
+            # then have to read the file again and copy the file contents into
+            # a writable netCDF4 Dataset, also in memory.  This is done in
+            # __duplicate_subarray_ncfile
+            if mode == "r":
+                # seek to the beginning then read
+                memory = request_object.file_object.read()
+            else:
+                memory = 0
         else:
             diskless = s3d._creation_params["diskless"]
             memory = s3d._creation_params["memory"]
@@ -464,9 +474,65 @@ class s3Variable(object):
         )
         return nc_sa_dataset
 
+    def __duplicate_subarray_ncfile(self, nc_in_dataset, nc_out_dataset):
+        """Copy the contents of one subarray netCDF file into another subarray
+        netCDF file.
+        This function is necessary for appending to datasets in memory - they
+        have to be read in first, duplicated into a writable dataset and then
+        written out on close."""
+        # note - assuming there are no groups in the subarray files
+        # there shouldn't be, as it's not in the CFA 0.5 spec
+        nc_out_dataset.setncatts(nc_in_dataset.__dict__)
+
+        # copy the groups first
+        for grp_name, grp in nc_in_dataset.groups.items():
+            new_grp = nc_out_dataset.createGroup(grp_name)
+            # copy group attributes
+            new_grp.setncatts(grp.__dict__)
+            # copy dimensions in group
+            for dim_name, dim in new_grp.dimensions.items():
+                # get the length of the dimension or unlimited
+                if dim.isunlimited():
+                    dim_len = None
+                else:
+                    dim_len = len(dim)
+                new_grp.createDimension(dim_name, dim_len)
+
+            # copy variables and data
+            for var_name, var in new_grp.variables.items():
+                new_var = new_grp.createVariable(
+                    var_name, var.datatype, var.dimensions
+                )
+                # copy variable attributes all at once via dictionary
+                new_var.setncatts(grp[var_name].__dict__)
+                # copy all the data
+                new_var[:] = var[:]
+
+        # copy dimensions
+        for dim_name, dim in nc_in_dataset.dimensions.items():
+            # get the length of the dimension or unlimited
+            if dim.isunlimited():
+                dim_len = None
+            else:
+                dim_len = len(dim)
+            nc_out_dataset.createDimension(dim_name, dim_len)
+
+        # copy variables and data
+        for var_name, var in nc_in_dataset.variables.items():
+            new_var = nc_out_dataset.createVariable(
+                var_name, var.datatype, var.dimensions
+            )
+            # copy variable attributes all at once via dictionary
+            new_var.setncatts(var.__dict__)
+            # copy all the data
+            new_var[:] = var[:]
+        return nc_out_dataset
+
     def __create_subarray_ncfile(self, index, in_memory=True, mode="w"):
         """Create the subarray file, either in memory or on disk."""
-        nc_sa_dataset = self.__open_subarray_ncfile(index, in_memory, mode)
+        nc_sa_dataset = self.__open_subarray_ncfile(
+                            index, None, in_memory, mode
+                        )
         # create the group if this variable is a member of a group
         cfa_grp = self._cfa_var.getGroup()
         if (cfa_grp is not None and cfa_grp.getName() is not "root"):
@@ -543,71 +609,134 @@ class s3Variable(object):
             # (filename, varname, source_slice, target_slice)
             index_list = self._cfa_var[elem]
             for index in index_list:
-                size = np.prod(index.partition.shape)
-                # check with the filemanager what state the file is in, and
-                # whether we should open it
+                size = (np.prod(index.partition.shape) *
+                        sizeof(self._cfa_var.getType().itemsize))
+
+                # get the state of the request object from the manager
+                open_state, orig_mode = self.file_manager.get_file_open_state(
+                                url = index.partition.file
+                            )
+                # if the state is KNOWN_EXISTS_ON_STORAGE we want to read the
+                # file first, get the netCDF dataset and then reopen it in
+                # write mode
+                # if the state is OPEN_EXISTS_IN_MEMORY but it is in read mode
+                # then we want to do the same, read the file, duplicate, write
+                if (open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE or
+                    (open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY and
+                     orig_mode == "r")):
+                    open_mode = "r"
+                else:
+                    open_mode = "w"
+                # request the file from the filemanager
                 request_object = self.file_manager.request_file(
-                                    index.partition.file, size, mode="w"
+                                    index.partition.file, size,
+                                    mode=open_mode
                                 )
-                if request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY:
+                # re-get the open state as it can be altered by the request_file
+                # method
+                open_state = request_object.open_state
+                if (open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY):
                     # create a netCDF file in memory if it has not been created
                     # previously
                     nc_sa_dataset = self.__create_subarray_ncfile(
-                        index, in_memory=True, mode="w"
+                        index, in_memory=True, mode=request_object.open_mode
                     )
                     # attach to the request_object (OpenFileRecord)
                     request_object.data_object = nc_sa_dataset
-                    # close the file object if not a remote system as we don't
-                    # need it
-                    if not request_object.file_object.remote_system:
-                        request_object.file_object.close()
                     # write the partition information to the master array var
                     self._cfa_var.writePartition(index.partition)
-
-                elif request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK:
+                    # tell the file manager we have opened the file successfully
+                    self.file_manager.open_success(index.partition.file)
+                elif (open_state == OpenFileRecord.OPEN_NEW_ON_DISK):
                     nc_sa_dataset = self.__create_subarray_ncfile(
-                        index, in_memory=False, mode="w"
+                        index, in_memory=False, mode=request_object.open_mode
                     )
                     request_object.data_object = nc_sa_dataset
                     # close the file object if not a remote system as we don't
-                    # need it
+                    # need it - the data_object is in effect the file object
                     request_object.file_object.close()
                     # write the partition information to the master array
                     self._cfa_var.writePartition(index.partition)
-
+                    # tell the file manager we have opened the file successfully
+                    self.file_manager.open_success(index.partition.file)
                 # if it has been created before then use the previously created
                 # file
-                elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
+                elif (open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY):
                     # get the already opened dataset from the request_object
                     # this will be a Dataset in memory
-                    nc_sa_dataset = request_object.data_object
+                    # if it is in read mode then read the dataset in, duplicate
+                    # it and write it back to another dataset and file object
+                    # in write mode.  Just like KNOWN_EXISTS_ON_STORAGE below
+                    if orig_mode == "r":
+                        nc_in_dataset = self.__open_subarray_ncfile(
+                            index, request_object, in_memory=True, mode="r"
+                        )
+                        # re-open the file in write mode, this will close and reopen
+                        # the file (which is currently in read mode)
+                        request_object = self.file_manager.request_file(
+                                            index.partition.file, size, mode="w"
+                                        )
+                        nc_sa_dataset = self.__open_subarray_ncfile(
+                            index, request_object, in_memory=True, mode="w"
+                        )
+                        # duplicate the data
+                        self.__duplicate_subarray_ncfile(
+                            nc_in_dataset, nc_sa_dataset
+                        )
+                        # attach to the request_object (OpenFileRecord)
+                        request_object.data_object = nc_sa_dataset
+                        # tell the file manager we have opened the file
+                        # successfully
+                        self.file_manager.open_success(index.partition.file)
+                    else:
+                        nc_sa_dataset = request_object.data_object
 
-                elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
+                elif (open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK):
                     # get the already opened dataset from the request_object
                     # this will be a Dataset on disk
                     nc_sa_dataset = request_object.data_object
 
                 # if it has been created then shuffled off to storage or disk
                 # before then open in append mode
-                elif request_object.open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE:
+                elif (open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
+                    # A special case for files already known on storage:
+                    # 1. Open the file in read mode, read the dataset into
+                    #    memory
+                    # 2. Close the file
+                    # 3. Open the same file in write mode
+                    # 4. Duplicate the dataset from the read file into the
+                    #    write dataset
+                    # 5. Return the write dataset
+                    nc_in_dataset = self.__open_subarray_ncfile(
+                        index, request_object, in_memory=True, mode="r"
+                    )
+                    # re-open the file in write mode, this will close and reopen
+                    # the file (which is currently in read mode)
+                    request_object = self.file_manager.request_file(
+                                        index.partition.file, size, mode="w"
+                                    )
                     nc_sa_dataset = self.__open_subarray_ncfile(
-                        index, in_memory=True, mode="a"
+                        index, request_object, in_memory=True, mode="w"
+                    )
+                    # duplicate the data
+                    self.__duplicate_subarray_ncfile(
+                        nc_in_dataset, nc_sa_dataset
                     )
                     # attach to the request_object (OpenFileRecord)
                     request_object.data_object = nc_sa_dataset
-                    if not request_object.file_object.remote_system:
-                        request_object.file_object.close()
-                    # update the request object state
-                    request_object.open_state = OpenFileRecord.OPEN_EXISTS_ON_STORAGE
+                    # tell the file manager we have opened the file successfully
+                    self.file_manager.open_success(index.partition.file)
 
-                elif request_object.open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK:
+                elif (open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK):
+                    # open in append mode for files already known on disk
                     nc_sa_dataset = self.__open_subarray_ncfile(
-                        index, in_memory=False, mode="a"
+                        index, request_object, in_memory=False,
+                        mode=request_object.open_mode
                     )
                     request_object.data_object = nc_sa_dataset
                     request_object.file_object.close()
-                    # update the request object state
-                    request_object.open_state = OpenFileRecord.OPEN_EXISTS_ON_DISK
+                    # tell the file manager we have opened the file successfully
+                    self.file_manager.open_success(index.partition.file)
 
                 # get the group if this variable is a member of a group
                 cfa_grp = self._cfa_var.getGroup()
@@ -651,7 +780,8 @@ class s3Variable(object):
                 # when the file is streamed into memory, the whole file is read
                 # in - i.e. it is opened in memory by netCDF.
                 # We need to reserve the full amount of space
-                size = np.prod(index.partition.shape)
+                size = (np.prod(index.partition.shape) *
+                        self._cfa_var.getType().itemsize)
                 request_object = self.file_manager.request_file(
                                     index.partition.file, size, mode="r"
                                 )
@@ -667,35 +797,23 @@ class s3Variable(object):
                     OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
                         # read the netCDF file into memory
                         nc_mem = request_object.file_object.read()
-                        nc_sa_dataset = netCDF4.Dataset(
-                            index.partition.file,
-                            mode="r",
-                            format=s3d._creation_params["format"],
-                            clobber=s3d._creation_params["clobber"],
-                            diskless=True,
-                            persist=s3d._creation_params["persist"],
-                            keepweakref=s3d._creation_params["keepweakref"],
-                            memory=nc_mem,
-                            parallel=False
+                        nc_sa_dataset = self.__open_subarray_ncfile(
+                            index, request_object, in_memory=True, mode="r"
                         )
                         # cache the data object
                         request_object.data_object = nc_sa_dataset
+                        # indicate successfully open
+                        self.file_manager.open_success(index.partition.file)
                     elif (request_object.open_state == OpenFileRecord.OPEN_NEW_ON_DISK or
                     request_object.open_state ==
                     OpenFileRecord.KNOWN_EXISTS_ON_DISK):
-                        nc_sa_dataset = netCDF4.Dataset(
-                            index.partition.file,
-                            mode="r",
-                            format=s3d._creation_params["format"],
-                            clobber=s3d._creation_params["clobber"],
-                            diskless=s3d._creation_params["diskless"],
-                            persist=s3d._creation_params["persist"],
-                            keepweakref=s3d._creation_params["keepweakref"],
-                            memory=None,
-                            parallel=False
+                        nc_sa_dataset = self.__open_subarray_ncfile(
+                            index, request_object, in_memory=False, mode="r"
                         )
                         # cache the data object
                         request_object.data_object = nc_sa_dataset
+                        # indicate successfully open
+                        self.file_manager.open_success(index.partition.file)
                     elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
                         nc_sa_dataset = request_object.data_object
                     elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
@@ -1103,11 +1221,6 @@ class s3Dataset(object):
         self._file_manager = FileManager()
         self._mode = mode
 
-        # open the file and record the file handle - make sure we open it in
-        # binary mode
-        if 'b' not in mode:
-            fh_mode = mode + 'b'
-
         # record the parameters passed in so that we can pass these on to the
         # subarray files
         self._creation_params = {
@@ -1130,7 +1243,8 @@ class s3Dataset(object):
         # file backends that are supported
         self._managed_object = self._file_manager.request_file(
                                     filename,
-                                    mode=fh_mode
+                                    mode=mode,
+                                    lock=True
                                )
 
         # set the file up for write mode
@@ -1169,6 +1283,8 @@ class s3Dataset(object):
                     format=file_type, diskless=True, persist=False,
                     keepweakref=keepweakref, memory=0, **kwargs
                 )
+                # indicate successfully open
+                self._file_manager.open_success(filename)
             else:
                 # this is a non remote file, i.e. just on the disk
                 # close the file object, as we don't need it anymore and free
@@ -1180,6 +1296,8 @@ class s3Dataset(object):
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, **kwargs
                 )
+                # indicate successfully open
+                self._file_manager.open_success(filename)
             # manage the interactions with the data_object
             self._managed_object.data_object = self._nc_dataset
         # handle read-only mode
@@ -1207,6 +1325,8 @@ class s3Dataset(object):
                     format=file_type, diskless=diskless, persist=persist,
                     keepweakref=keepweakref, memory=nc_bytes, **kwargs
                 )
+                # indicate successfully open
+                self._file_manager.open_success(filename)
             else:
                 # close the file object, as we don't need it anymore and free
                 # up file handles
@@ -1218,6 +1338,8 @@ class s3Dataset(object):
                     keepweakref=keepweakref, **kwargs
                 )
                 self._managed_object.data_object = self._nc_dataset
+                # indicate successfully open
+                self._file_manager.open_success(filename)
 
             # parse the CFA file if it is one
             parser = CFA_netCDFParser()
@@ -1238,29 +1360,12 @@ class s3Dataset(object):
 
         # Close and possibly upload any file in the FileManager
         # This will be the Master Array File and any SubArray files
-        for file in self._file_manager.files:
-            # close the SubArray file and return the bytes
-            file_obj = self._file_manager.files[file]
-            # don't attempt to close already closed file
-            if (file_obj.open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK or
-                file_obj.open_state == OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
-                continue
-            # get the netCDF file from memory via the data_object member of
-            # OpenFileRecord - only for write
-            if (self._mode == 'w' or self._mode == 'a' or self._mode == 'r+'):
-                if file_obj.file_object.remote_system:
-                    nc_bytes = file_obj.data_object.close()
-                    file_obj.file_object.close(nc_bytes)
-                else:
-                    if file_obj.data_object:
-                        file_obj.data_object.close()
-                    if file_obj.file_object:
-                        file_obj.file_object.close()
-            else:
-                if file_obj.data_object:
-                    file_obj.data_object.close()
-                if file_obj.file_object:
-                    file_obj.file_object.close()
+        for file_key in self._file_manager.files:
+            self._file_manager.free_file(key=file_key, keep_reference=False)
+
+    def __dealloc__(self):
+        """Close the dataset when no references are left to the S3Dataset"""
+        self.close()
 
     def createDimension(self, dimname, size=None,
                         axis_type="U", metadata={}):
