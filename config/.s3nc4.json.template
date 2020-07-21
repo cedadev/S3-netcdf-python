@@ -31,6 +31,9 @@
 
         }
     },
-    "cache_location": "{{ cache_location }}",
-    "free_memory_limit": "{{ free_memory_limit }}"
+    "cache_location" : "{{ cache_location }}",
+    "resource_allocation" : {
+        "memory": "{{ memory_allocation_limit }}",
+        "filehandles": "{{ filehandle_allocation_limit }}"
+    }
 }

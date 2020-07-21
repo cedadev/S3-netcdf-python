@@ -18,17 +18,19 @@ from S3netCDF4._Exceptions import APIException
 
 class ConnectionObject(object):
     """A small class to hold connection information."""
-    def __init__(self, conn=None, uri="", available=False, conn_num=0):
+    def __init__(self, conn=None, uri="", available=False):
         self.conn = conn
         self.uri = uri
-        self.available = available
-        self.conn_num = conn_num
+        self.conn_refs = 0
+
+    def __str__(self):
+        return "{} : ({})".format(self.uri, self.conn_refs)
 
 class ConnectionPool(object):
     """Connection pool for S3 netCDF.  Stores connections to external storage in
-    a pool, and keeps track of whether they are locked (unavailable), or
-    unlocked (available).  This maintains connections to servers to enhance
-    performance by not incurring the time penalty of establishing a connection
+    a pool, and keeps track of how many connections have been made to them.
+    This maintains connections to servers to enhance performance by not
+    incurring the time penalty of establishing a connection
     """
 
     def __init__(self):
@@ -43,17 +45,17 @@ class ConnectionPool(object):
             None
         """
         # Use the conn_uri as the key to the dictionary
-        # The value of the dictionary has to be a list, as multiple connections
-        # to the same uri could be made.  Each entry is a named tuple containing
-        # the connection and whether it is available or not
+        # If the conn_uri already exists in the connection pool then increase
+        # the reference count
+        # If it doens't then create the connection with a reference count of
+        # zero
         if conn_uri in self._connection_pool:
-            # need to keep track of which connection number we should use
-            conn_num = len(self._connection_pool[conn_uri])
-            conn_obj = ConnectionObject(conn, conn_uri, False, conn_num)
-            self._connection_pool[conn_uri].append(conn_obj)
+            conn_obj = self._connection_pool[conn_uri]
+            conn_obj.conn_refs += 1
         else:
-            conn_obj = ConnectionObject(conn, conn_uri, False, 0)
-            self._connection_pool[conn_uri] = [conn_obj]
+            conn_obj = ConnectionObject(conn, conn_uri)
+            conn_obj.conn_refs = 1
+            self._connection_pool[conn_uri] = conn_obj
         return conn_obj
 
     def get(self, conn_uri):
@@ -63,13 +65,11 @@ class ConnectionPool(object):
         Returns:
             ConnectionObject | None
         """
-
         # Use the conn_uri to the dictionary to try to find a free connection
         if conn_uri in self._connection_pool:
-            for conn_obj in self._connection_pool[conn_uri]:
-                if conn_obj.available:
-                    conn_obj.available = False
-                    return conn_obj
+            conn_obj = self._connection_pool[conn_uri]
+            conn_obj.conn_refs += 1
+            return conn_obj
 
         return None
 
@@ -83,4 +83,4 @@ class ConnectionPool(object):
                     conn_obj.uri
                 )
             )
-        self._connection_pool[conn_obj.uri][conn_obj.conn_num].available = True
+        conn_obj.conn_refs -= 1

@@ -18,12 +18,14 @@ import asyncio
 import inspect
 import time
 import os
-import resource
-from psutil import virtual_memory, Process
+from psutil import Process
 from urllib.parse import urlparse
 from collections import OrderedDict
 from hashlib import sha1
 import numpy as np
+import gc
+#import tracemalloc
+#tracemalloc.start()
 
 from S3netCDF4.Managers._ConfigManager import Config
 from S3netCDF4._Exceptions import *
@@ -63,6 +65,10 @@ class FileObject(object):
     @property
     def file_handle(self):
         return self._fh
+
+    @file_handle.setter
+    def file_handle(self, val):
+        self._fh = val
 
     async def _seek_then_read(self, seek_pos, nbytes):
         await self.file_handle.seek(seek_pos)
@@ -107,6 +113,7 @@ class FileObject(object):
         """Close the file."""
         # write any in-memory data into the file, if it is a remote file
         if ('w' in self._mode and self._remote_system and data is not None):
+            print("Write data")
             # if it's an async system them write until completed
             if self.async_system:
                 self._event_loop.run_until_complete(
@@ -181,23 +188,15 @@ class OpenFileRecord(object):
         DOES_NOT_EXIST : "DOES_NOT_EXIST"
     }
 
-    @property
-    def data_object(self):
-        return self._data_object
-
-    @data_object.setter
-    def data_object(self, val):
-        self._data_object = val
-
     def __init__(self, url, size, file_object,
                  last_accessed, open_state, open_mode="r", lock=False):
         """Just load all the values in from the constructor."""
         self.url = url
         self.size = size
         self.file_object = file_object
+        self.data_object = None
         self.last_accessed = last_accessed
         self.open_state = open_state
-        self._data_object = None
         self.open_mode = open_mode
         self.lock = lock
 
@@ -212,8 +211,37 @@ class OpenFileRecord(object):
         )
         return repstr
 
-    def close(self):
-        self._data_object.close()
+class OpenArrayRecord(object):
+    """An object that contains a record of a currently active array.
+    This array may be in memory, or be a numpy memmap array (if the allocated
+    memory has run out).  Details of the size, type (IN_MEMORY | MEMMAP) and
+    location (neccessary for MEMMAP arrays) are recorded."""
+
+    """Potential array types"""
+    IN_MEMORY = 0
+    MEMMAP = 1
+
+    array_type_mapping = {
+        IN_MEMORY : "IN_MEMORY",
+        MEMMAP : "MEMMAP"
+    }
+
+    def __init__(self, size, array_type, array_location=None):
+        """Load all the values in from the constructor"""
+        self.size = size
+        self.array_type = array_type
+        self.array_location = array_location
+
+    def __repr__(self):
+        """String representation of the OpenArrayRecord."""
+        repstr = repr(type(self)) + "\n"
+        repstr += "\tsize = {}, array_type = {}".format(
+                  self.size,
+                  OpenArrayRecord.array_type_mapping[self.array_type]
+                )
+        if self.array_location:
+            repstr += ", array_location = {}".format(self.array_location)
+        return repstr
 
 class FileManager(object):
     """Class to return a file object handle when supplied with a URL / URI /
@@ -225,6 +253,8 @@ class FileManager(object):
 
     def __init__(self):
         self._open_files = OrderedDict()
+        self._open_arrays = []  # only need a list for arrays as there may be
+                                # no way of identifying them
 
     @property
     def files(self):
@@ -264,7 +294,7 @@ class FileManager(object):
                        '", credentials=' + str(credentials) +
                        ')')
             # use eval to execute the arg_str
-            _fo._fh = eval(arg_str)
+            _fo.file_handle = eval(arg_str)
         else:
             # try opening just on the file system
             try:
@@ -275,9 +305,9 @@ class FileManager(object):
                         os.makedirs(dir_path)
                 # check if it's a directory or not, or contains glob wildcards
                 if (os.path.isdir(url) or '*' in url or '?' in url):
-                    _fo._fh = None
+                    _fo.file_handle = None
                 else:
-                    _fo._fh = open(url, mode=mode)
+                    _fo.file_handle = open(url, mode=mode)
             except FileNotFoundError as e:
                 if alias != "://" and alias not in FileManager._config["hosts"]:
                     raise IOException(
@@ -357,39 +387,62 @@ class FileManager(object):
 
         # check if there are enough file handles
         if (FileManager.__file_greater_than_filehandles()):
-            raise IOException("No file handles remaining")
+            raise IOException("File handles exceed resource allocation")
 
     @staticmethod
     def __file_greater_than_filehandles(size=0):
-        # Provide a function to measure the number of file handles against that
-        # imposed by ulimit
-        # This will be used when checking whether files should be shuffled and
-        # as a parameter in the __shuffle_files function
-        # Size has to be passed in so that __shuffle_files function can use this
-        # or __size_greater_than_memory - i.e. they have the same parameter
-        # signature
+        # Provide a function to measure the number of file handles against
+        # that imposed by the "resource_allocation" entry in the config file
+        # This will be used when checking whether files should be shuffled
+        # and as a parameter in the __shuffle_files function
+        # Size has to be passed in so that __shuffle_files function can use
+        # this or __size_greater_than_memory - i.e. they have the same
+        # parameter signature
+        # get the ulimit -n number of permitted open files
+        soft_limit = (
+            FileManager._config["resource_allocation"]["filehandles"]
+        )
+        # get the current process and measure the number of open files
         proc = Process()
         n_open_files = len(proc.open_files())
-        # get the ulimit -n number of permitted open files
-        soft_limit, hard_limit = resource.getrlimit(
-            resource.RLIMIT_NOFILE)
-        # +4 here as we want to check if we can open another file
+        # +2 here as we want to check if we can open another file
         # next time and we need two file handles at one point
         # when we open the file and then open the netCDF
-        return (n_open_files + 4 >= soft_limit)
+        return (n_open_files + 2 >= soft_limit)
+
+    @staticmethod
+    def __report_memory_usage():
+        # Get a string of memory usage stats
+        memory_limit = (
+            FileManager._config["resource_allocation"]["memory"]
+        )
+
+        proc = Process()
+        used_memory = proc.memory_info().rss
+        available_memory = memory_limit - used_memory
+        return ("Used memory: {} Available memory: {}".format(
+            used_memory/1024, available_memory/1024))
 
     @staticmethod
     def __size_greater_than_memory(size):
-        # Provide a function to measure the size of the requested file against
-        # the available memory.
-        # This will be used when checking whether files should be shuffled and
-        # as a parameter in the __shuffle_files function
-        # memory_buffer_limit is the minimum amount of memory to be left after
-        # the files have been read in.  This is to allow error messages, stack
-        # traces, python system etc.
-        memory_buffer_limit = FileManager._config["free_memory_limit"]
-        available_memory = virtual_memory().available - memory_buffer_limit
-        return size > available_memory
+        # Provide a function to measure the size of the requested file
+        # against the remaining memory that has been allocated to this
+        # instance of S3-netCDF python via the config file entry:
+        # "resource_allocation" : {"memory" : }
+        # This will be used when checking whether files already in memory
+        # should be shuffled to their storage medium to make room for the
+        # new file
+        memory_limit = (
+            FileManager._config["resource_allocation"]["memory"]
+        )
+        # get the amount of memory used by this process
+        proc = Process()
+        # available_memory = resource allocated memory - memory used by
+        # process
+        # rss = Resident Set Size (non swapped memory)
+        used_memory = proc.memory_info().rss
+        available_memory = memory_limit - used_memory
+        return (size > available_memory)
 
     def __shuffle_files_memory(self, size):
         """This function moves files out of memory by closing them, when the
@@ -399,6 +452,7 @@ class FileManager(object):
         This indicates that the next time the files are opened (for writing),
         they are opened in append mode."""
         # get the subset where the status is "OPEN_EXISTS_IN_MEMORY"
+        print("Shuffle entry")
         exists_in_mem = OrderedDict({
             k: v for k, v in self._open_files.items() if (v.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY and not v.lock)
         })
@@ -416,11 +470,20 @@ class FileManager(object):
             # get the open file record
             key = sorted_time_accessed[cp][0]
             self.free_file(key=key, keep_reference=True)
+            print("Free File :: " + FileManager.__report_memory_usage())
             cp += 1
 
-        # check if there are enough file handles
+        # check if there is enough free memory
         if (FileManager.__size_greater_than_memory(size)):
-            raise MemoryException("Out of memory")
+            # print tracemalloc
+            #snapshot = tracemalloc.take_snapshot()
+            #top_stats = snapshot.statistics('lineno')
+
+            #print("[ Top 100 ]")
+            #for stat in top_stats[:100]:
+            #    print(stat)
+            print(gc.garbage)
+            raise MemoryException("Memory usage exceeds resource allocation")
 
     def get_file_open_state(self, url=None, key=None):
         """Query the state of a file.  This allows for more clean requests,
@@ -539,9 +602,15 @@ class FileManager(object):
                     if size == 0 and (mode == 'r' or mode == 'a'):
                         actual_size = fo.size()
                         if FileManager.__size_greater_than_memory(actual_size):
+                            # print tracemalloc
+                            # snapshot = tracemalloc.take_snapshot()
+                            # top_stats = snapshot.statistics('lineno')
+                            #
+                            # print("[ Top 20 ]")
+                            # for stat in top_stats[:20]:
+                            #     print(stat)
                             raise MemoryException(
-                                "Trying to stream a file that is greater than "
-                                "the available memory: {}".format(url)
+                                "Trying to stream a file that is greater " "than the available memory: {}".format(url)
                             )
                     # if a size is requested then we can shuffle the contents
                     # of memory
@@ -616,28 +685,37 @@ class FileManager(object):
             key = generate_key(url)
         assert(key in self._open_files)
 
-        file_obj = self._open_files[key]
+        open_file = self._open_files[key]
         # close the data object and file object
-        if file_obj.data_object:
-            nc_bytes = file_obj.data_object.close()
+        if open_file.data_object:
+            nc_bytes = open_file.data_object.close()
+        else:
+            nc_bytes = None
 
-        if file_obj.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
+        if open_file.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
             # mark as KNOWN to the system - open in append mode next time
-            if file_obj.file_object:
-                file_obj.file_object.close()
-            file_obj.open_state = OpenFileRecord.KNOWN_EXISTS_ON_DISK
-        elif self._open_files[key].open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
+            if open_file.file_object:
+                open_file.file_object.close()
+            open_file.open_state = OpenFileRecord.KNOWN_EXISTS_ON_DISK
+        elif open_file.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
             # close the data object, get the data and write to the file object
-            file_obj.file_object.close(nc_bytes)
-            file_obj.open_state = OpenFileRecord.KNOWN_EXISTS_ON_STORAGE
+            open_file.file_object.close(nc_bytes)
+            open_file.open_state = OpenFileRecord.KNOWN_EXISTS_ON_STORAGE
+            print("Close {}".format(open_file.url))
 
-        file_obj.data_object = None # this frees the memory
-        file_obj.file_object = None # and this
-        nc_bytes = None             # and this!
+        open_file.data_object = None
+        open_file.file_object = None
+        nc_bytes = None
+
+        # garbage collect
+        n_unreach = gc.collect()
+        print("Garbage collect, unreachables: {} counts: {}".format(
+            n_unreach, gc.get_count()
+        ))
 
         # delete file reference if this is a permanent close
         if not keep_reference:
-            file_obj.open_state = OpenFileRecord.DOES_NOT_EXIST
+            open_file.open_state = OpenFileRecord.DOES_NOT_EXIST
 
     def request_array(self, index_list, dtype, base_name=""):
         """Create an array based on the info detailed in elem and dtype.
@@ -660,11 +738,10 @@ class FileManager(object):
         # calculate the target shape as max - min
         target_array_shape = target_array_max - target_array_min
         # get the size and see if there is enough memory to create the array
-        target_array_size = np.prod(target_array_shape)
-        memory_buffer_limit = FileManager._config["free_memory_limit"]
-        available_memory = virtual_memory().available - memory_buffer_limit
+        target_array_size = np.prod(target_array_shape) * dtype.itemsize
+        print("Request array size: {}".format(target_array_size))
 
-        if target_array_size > available_memory:
+        if FileManager.__size_greater_than_memory(target_array_size):
             # construct a name for the memory mapped array
             mmap_name = os.path.join(
                 FileManager._config['cache_location'] + "/",
@@ -677,9 +754,19 @@ class FileManager(object):
                 dtype=dtype,
                 mode="w+"
             )
+            array_type = OpenArrayRecord.MEMMAP
+            array_location = mmap_name
         else:
             target_array = np.empty(
                 target_array_shape,
                 dtype=dtype
             )
+            array_type = OpenArrayRecord.IN_MEMORY
+            array_location = None
+
+        # add the array to the record of arrays
+        array_record = OpenArrayRecord(
+                            target_array_size, array_type, array_location
+                       )
+        self._open_arrays.append(array_record)
         return target_array

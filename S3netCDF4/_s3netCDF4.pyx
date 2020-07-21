@@ -18,9 +18,8 @@ from psutil import virtual_memory
 import os
 import errno
 
-# This module Duplicates classes and functions from the standard UniData netCDF4
-# implementation and overrides their functionality so as it enable S3 and CFA
-# functionality
+# This module Duplicates classes and functions from the standard UniData
+# netCDF4 implementation and overrides their functionality so as it enable S3 # and CFA functionality
 # import as netCDF4 to avoid confusion with the S3netCDF4 module
 import netCDF4._netCDF4 as netCDF4
 from S3netCDF4._Exceptions import *
@@ -452,7 +451,9 @@ class s3Variable(object):
             # __duplicate_subarray_ncfile
             if mode == "r":
                 # seek to the beginning then read
+                print("Reading file")
                 memory = request_object.file_object.read()
+                print("Done")
             else:
                 memory = 0
         else:
@@ -610,7 +611,7 @@ class s3Variable(object):
             index_list = self._cfa_var[elem]
             for index in index_list:
                 size = (np.prod(index.partition.shape) *
-                        sizeof(self._cfa_var.getType().itemsize))
+                        self._cfa_var.getType().itemsize)
 
                 # get the state of the request object from the manager
                 open_state, orig_mode = self.file_manager.get_file_open_state(
@@ -645,8 +646,6 @@ class s3Variable(object):
                     request_object.data_object = nc_sa_dataset
                     # write the partition information to the master array var
                     self._cfa_var.writePartition(index.partition)
-                    # tell the file manager we have opened the file successfully
-                    self.file_manager.open_success(index.partition.file)
                 elif (open_state == OpenFileRecord.OPEN_NEW_ON_DISK):
                     nc_sa_dataset = self.__create_subarray_ncfile(
                         index, in_memory=False, mode=request_object.open_mode
@@ -657,8 +656,6 @@ class s3Variable(object):
                     request_object.file_object.close()
                     # write the partition information to the master array
                     self._cfa_var.writePartition(index.partition)
-                    # tell the file manager we have opened the file successfully
-                    self.file_manager.open_success(index.partition.file)
                 # if it has been created before then use the previously created
                 # file
                 elif (open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY):
@@ -671,8 +668,8 @@ class s3Variable(object):
                         nc_in_dataset = self.__open_subarray_ncfile(
                             index, request_object, in_memory=True, mode="r"
                         )
-                        # re-open the file in write mode, this will close and reopen
-                        # the file (which is currently in read mode)
+                        # re-open the file in write mode, this will close and
+                        # reopen the file (which is currently in read mode)
                         request_object = self.file_manager.request_file(
                                             index.partition.file, size, mode="w"
                                         )
@@ -685,9 +682,6 @@ class s3Variable(object):
                         )
                         # attach to the request_object (OpenFileRecord)
                         request_object.data_object = nc_sa_dataset
-                        # tell the file manager we have opened the file
-                        # successfully
-                        self.file_manager.open_success(index.partition.file)
                     else:
                         nc_sa_dataset = request_object.data_object
 
@@ -724,8 +718,6 @@ class s3Variable(object):
                     )
                     # attach to the request_object (OpenFileRecord)
                     request_object.data_object = nc_sa_dataset
-                    # tell the file manager we have opened the file successfully
-                    self.file_manager.open_success(index.partition.file)
 
                 elif (open_state == OpenFileRecord.KNOWN_EXISTS_ON_DISK):
                     # open in append mode for files already known on disk
@@ -735,8 +727,9 @@ class s3Variable(object):
                     )
                     request_object.data_object = nc_sa_dataset
                     request_object.file_object.close()
-                    # tell the file manager we have opened the file successfully
-                    self.file_manager.open_success(index.partition.file)
+
+                # tell the file manager we have opened the file successfully
+                self.file_manager.open_success(index.partition.file)
 
                 # get the group if this variable is a member of a group
                 cfa_grp = self._cfa_var.getGroup()
@@ -795,8 +788,6 @@ class s3Variable(object):
                     if (request_object.open_state == OpenFileRecord.OPEN_NEW_IN_MEMORY or
                     request_object.open_state ==
                     OpenFileRecord.KNOWN_EXISTS_ON_STORAGE):
-                        # read the netCDF file into memory
-                        nc_mem = request_object.file_object.read()
                         nc_sa_dataset = self.__open_subarray_ncfile(
                             index, request_object, in_memory=True, mode="r"
                         )

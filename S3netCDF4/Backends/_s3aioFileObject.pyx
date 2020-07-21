@@ -410,6 +410,9 @@ class s3aioFileObject(object):
             else:
                 new_buffer.append(self._buffer[buffer_part])
 
+        # close other buffers first
+        for b in self._buffer:
+            b.close()
         self._buffer = new_buffer
 
         tasks = []
@@ -604,6 +607,10 @@ class s3aioFileObject(object):
                         UploadId=self._upload_id,
                         MultipartUpload=self._multipart_info
                     )
+            # clear the buffers
+            for b in self._buffer:
+                b.close()
+
         except AttributeError as e:
             self._handle_connection_exception(e)
         return True

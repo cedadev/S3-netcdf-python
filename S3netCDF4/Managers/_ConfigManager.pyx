@@ -11,6 +11,8 @@ __license__ = "BSD - see LICENSE file in top-level directory"
 
 import os
 import json
+import psutil
+import resource
 from .._Exceptions import IOException, APIException
 
 COMPATIBLE_VERSIONS = ["9"]
@@ -93,11 +95,32 @@ class Config(object):
             self._sl_user_config["filename"] = sl_config_path
             # keys to convert between text sizes and integer sizes
             # (e.g.) 50MB to 50*1024*1024
-            keys_to_convert = ["maximum_part_size", "free_memory_limit"]
+            keys_to_convert = [
+                "maximum_part_size",
+                "memory"
+            ]
             # interpret the config file, converting the above keys
             interpret_config_file(self._sl_user_config, keys_to_convert)
             # close the config file
             fp.close()
+            # configure some defaults if they are not in the config file
+            # note that default configs for the backends are handled in the
+            # constructor of the backend class, e.g. _s3aioFileObject
+            avail_mem = psutil.virtual_memory().available
+            fhandles = resource.getrlimit(resource.RLIMIT_NOFILE)[0]
+            if "resource_allocation" in self._sl_user_config:
+                if not "memory" in self._sl_user_config["resource_allocation"]:
+                    self._sl_user_config["resource_allocation"]["memory"] = avail_mem
+                if (not "filehandles" in
+                      self._sl_user_config["resource_allocation"]):
+                    self._sl_user_config["resource_allocation"]["filehandles"] = fhandles
+            else:
+                self._sl_user_config["resource_allocation"] = {
+                    "memory" : avail_mem,
+                    "filehandles" : fhandles
+                }
+            print(self._sl_user_config["resource_allocation"])
+
         except IOError:
             raise IOException(
                 "User config file does not exist with path: {}".format(
