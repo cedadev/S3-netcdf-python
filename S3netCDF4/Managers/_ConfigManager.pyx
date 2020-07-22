@@ -119,7 +119,6 @@ class Config(object):
                     "memory" : avail_mem,
                     "filehandles" : fhandles
                 }
-            print(self._sl_user_config["resource_allocation"])
 
         except IOError:
             raise IOException(

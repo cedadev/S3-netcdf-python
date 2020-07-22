@@ -451,9 +451,7 @@ class s3Variable(object):
             # __duplicate_subarray_ncfile
             if mode == "r":
                 # seek to the beginning then read
-                print("Reading file")
                 memory = request_object.file_object.read()
-                print("Done")
             else:
                 memory = 0
         else:
@@ -1351,8 +1349,10 @@ class s3Dataset(object):
 
         # Close and possibly upload any file in the FileManager
         # This will be the Master Array File and any SubArray files
-        for file_key in self._file_manager.files:
-            self._file_manager.free_file(key=file_key, keep_reference=False)
+        self._file_manager.free_all_files()
+
+        # free all the arrays in the FileManager
+        self._file_manager.free_all_arrays()
 
     def __dealloc__(self):
         """Close the dataset when no references are left to the S3Dataset"""
