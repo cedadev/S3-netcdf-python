@@ -47,7 +47,7 @@ class ConnectionPool(object):
         # Use the conn_uri as the key to the dictionary
         # If the conn_uri already exists in the connection pool then increase
         # the reference count
-        # If it doens't then create the connection with a reference count of
+        # If it doesn't then create the connection with a reference count of
         # zero
         if conn_uri in self._connection_pool:
             conn_obj = self._connection_pool[conn_uri]
