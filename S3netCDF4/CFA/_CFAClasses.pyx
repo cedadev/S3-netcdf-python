@@ -1,11 +1,11 @@
 #!python
 #cython: language_level=3
 
-"""See class diagrams and interactions in __init__.py"""
-
-__copyright__ = "(C) 2019 Science and Technology Facilities Council"
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
-__authors__ = "Neil Massey and Matthew Jones"
+__authors__ = "Neil Massey"
+
+"""See class diagrams and interactions in __init__.py"""
 
 import numpy as np
 cimport numpy as np
@@ -16,7 +16,10 @@ from collections import namedtuple
 
 import netCDF4._netCDF4 as netCDF4
 
-from S3netCDF4.CFA._CFAExceptions import *
+from S3netCDF4.CFA._CFAExceptions import (
+    CFAGroupError, CFADimensionError, CFAVariableError, CFAVariableIndexError,
+    CFAPartitionError, CFAPartitionIndexError, CFASubArrayError, CFAError
+)
 from S3netCDF4.CFA._CFASplitter import CFASplitter
 
 cdef class CFADataset:

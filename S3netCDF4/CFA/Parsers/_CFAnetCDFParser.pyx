@@ -1,20 +1,28 @@
 #!python
 #cython: language_level=3
-__copyright__ = "(C) 2019 Science and Technology Facilities Council"
+
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
 
 """
    Parser to read / write CFA metadata from / to a netCDF file.
 
    See:
      http://www.met.reading.ac.uk/~david/cfa/0.4/index.html
-   for the specification of the CFA conventions.
+   for the v0.4 specification of the CFA conventions and an overview of the
+   CFA conventions
+
+   s3netCDF-python uses an updated version (v0.5) of the CFA conventions which,
+   rather than writing the partition information to a netCDF attribute as a
+   string, writes the partition information to variables inside a group.
 """
 
-from S3netCDF4.CFA._CFAExceptions import *
-from S3netCDF4.CFA._CFAClasses import *
+from S3netCDF4.CFA._CFAExceptions import CFAParserError
+from S3netCDF4.CFA._CFAClasses import (
+    CFADataset, CFAGroup, CFAVariable, CFADimension
+)
 import netCDF4._netCDF4 as netCDF4
-import posixpath
 import json
 
 from S3netCDF4.CFA.Parsers._CFAParser import CFA_Parser
@@ -38,7 +46,7 @@ class CFA_netCDFParser(CFA_Parser):
     def __get_cfa_version(self, nc_dataset):
         """Parse the Conventions attribute to get the CFA version."""
         if not "Conventions" in nc_dataset.ncattrs():
-            raise CFAError("Not a CFA file.")
+            raise CFAParserError("Not a CFA file.")
         else:
             conventions = nc_dataset.getncattr("Conventions").split(" ")
             cfa_version = "0.0"
@@ -46,7 +54,7 @@ class CFA_netCDFParser(CFA_Parser):
                 if "CFA-" in c:
                     cfa_version = c[4:]
             if cfa_version == "0.0":
-                raise CFAError("Not a CFA file.")
+                raise CFAParserError("Not a CFA file.")
         return cfa_version
 
     def __create_s3vars_and_dims(self, s3_object, nc_object, cfa_object):
@@ -150,7 +158,7 @@ class CFA_netCDFParser(CFA_Parser):
         nc_dataset = s3_dataset._nc_dataset
         # check this is a CFA file
         if not self.is_file(nc_dataset):
-            raise CFAError("Not a CFA file.")
+            raise CFAParserError("Not a CFA file.")
 
         # get the cfa version so we can interpret it as CFA-0.5 (in netCDF4
         # format) or CFA-0.4 (in netCDF3, CLASSIC or netCDF4 format)
@@ -218,7 +226,7 @@ class CFA_netCDFParser(CFA_Parser):
                         # metadata is stored in a variable in a group
                         cfa_var.load(nc_var_md, nc_group)
                     else:
-                        raise CFAError(
+                        raise CFAParserError(
                             "Unsupported CFA version ({}) in file.".format(
                                 cfa_version
                             )
@@ -291,7 +299,7 @@ class CFA_netCDFParser(CFA_Parser):
                         # the original variable
                         var_md['cfa_group'] = "cfa_" + var
                     else:
-                        raise CFAError(
+                        raise CFAParserError(
                             "Unsupported CFA version ({}) in file.".format(
                                 cfa_version
                             )

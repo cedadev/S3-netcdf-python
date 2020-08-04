@@ -1,29 +1,33 @@
 #!python
 #cython: language_level=3
 
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """
 S3 enabled version of netCDF4.
 Allows reading and writing of netCDF files to object stores via AWS S3.
 
 Requirements: botocore / aiobotocore, psutil, netCDF4, Cython
-
-Author:  Neil Massey
-Date:    10/07/2017
-Updated: 13/05/2019
 """
 
-import sys
+from sys import version_info as sys_version_info
 import numpy as np
 from psutil import virtual_memory
-import os
-import errno
+from os import strerror
+from errno import ENOENT as errno_ENOENT
 
 # This module Duplicates classes and functions from the standard UniData
-# netCDF4 implementation and overrides their functionality so as it enable S3 # and CFA functionality
+# netCDF4 implementation and overrides their functionality so as it enable S3
+# and CFA functionality
 # import as netCDF4 to avoid confusion with the S3netCDF4 module
 import netCDF4._netCDF4 as netCDF4
-from S3netCDF4._Exceptions import *
-from S3netCDF4.CFA._CFAClasses import *
+from S3netCDF4._Exceptions import IOException, APIException
+from S3netCDF4.CFA._CFAClasses import (
+    CFADataset, CFAGroup, CFAVariable, CFADimension
+)
+from S3netCDF4.CFA._CFAExceptions import CFAError
 from S3netCDF4.CFA.Parsers._CFAnetCDFParser import CFA_netCDFParser
 from S3netCDF4.Managers._FileManager import FileManager, OpenFileRecord
 
@@ -105,7 +109,7 @@ class s3Dimension(object):
 
     def __repr__(self):
         if hasattr(self, "_cfa_dim") and self._cfa_dim:
-            if sys.version_info[0] > 2:
+            if sys_version_info[0] > 2:
                 return self.__unicode__()
             else:
                 return unicode(self).encode('utf-8')
@@ -362,7 +366,7 @@ class s3Variable(object):
                     name, self.name
                 ))
         else:
-            self._nc_var.delncattr(name, value)
+            self._nc_var.delncattr(name)
 
     def getncattr(self, name):
         """Override getncattr function to manipulate the metadata dictionary,
@@ -826,7 +830,7 @@ class s3Variable(object):
 
     def __repr__(self):
         if hasattr(self, "_cfa_var") and self._cfa_var:
-            if sys.version_info[0] > 2:
+            if sys_version_info[0] > 2:
                 return self.__unicode__()
             else:
                 return unicode(self).encode('utf-8')
@@ -1058,7 +1062,7 @@ class s3Group(object):
                     name, self.name
                 ))
         else:
-            self._nc_grp.delncattr(name, value)
+            self._nc_grp.delncattr(name)
 
     def getncattr(self, name):
         """Override getncattr function to manipulate the metadata dictionary,
@@ -1129,7 +1133,7 @@ class s3Group(object):
 
     def __repr__(self):
         if hasattr(self, "_cfa_grp") and self._cfa_grp:
-            if sys.version_info[0] > 2:
+            if sys_version_info[0] > 2:
                 return self.__unicode__()
             else:
                 return unicode(self).encode('utf-8')
@@ -1296,7 +1300,7 @@ class s3Dataset(object):
             self._managed_object.open_state == OpenFileRecord.DOES_NOT_EXIST
             ):
                 raise FileNotFoundError(
-                    errno.ENOENT, os.strerror(errno.ENOENT), filename
+                    errno_ENOENT, strerror(errno_ENOENT), filename
                 )
             # get the header data
             data = self._managed_object.file_object.read_from(0, 6)
@@ -1505,7 +1509,7 @@ class s3Dataset(object):
 
     def __repr__(self):
         if hasattr(self, "_cfa_dataset") and self._cfa_dataset:
-            if sys.version_info[0] > 2:
+            if sys_version_info[0] > 2:
                 return self.__unicode__()
             else:
                 return unicode(self).encode('utf-8')
@@ -1583,7 +1587,7 @@ class s3Dataset(object):
                 raise APIException(
                     "Attribute {} not found in dataset".format(name))
         else:
-            self._nc_dataset.delncattr(name, value)
+            self._nc_dataset.delncattr(name)
 
     def getncattr(self, name):
         """Override getncattr function to manipulate the metadata dictionary,

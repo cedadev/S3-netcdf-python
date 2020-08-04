@@ -1,6 +1,10 @@
 #!python
 #cython: language_level=3
 
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """
    CFASplitter class containing the routines required to take a
    multi-dimensional array and split it into subarrays according to the protocol
@@ -9,10 +13,6 @@
    equal.
 
 """
-
-__copyright__ = "(C) 2019 Science and Technology Facilities Council"
-__license__ = "BSD - see LICENSE file in top-level directory"
-__authors__ = "Neil Massey and Matthew Jones"
 
 import numpy as np
 cimport numpy as np

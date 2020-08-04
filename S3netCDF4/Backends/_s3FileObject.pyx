@@ -1,11 +1,13 @@
 #!python
 #cython: language_level=3
-__copyright__ = "(C) 2019 Science and Technology Facilities Council"
+
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
 
 import io
-import fnmatch
-from urllib.parse import urlparse, urljoin, urlsplit
+from fnmatch import fnmatch
+from urllib.parse import urlparse
 
 from botocore.exceptions import ClientError
 import botocore.session
@@ -624,6 +626,6 @@ class s3FileObject(io.BufferedIOBase):
             for item in page.get('Contents', []):
                 fname = item['Key']
                 # check that it matches against wildcard
-                if fnmatch.fnmatch(fname, wildcard):
+                if fnmatch(fname, wildcard):
                     files.append(item['Key'])
         return files
