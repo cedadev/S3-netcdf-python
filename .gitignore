@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 
 # C extensions
+*.c
 *.so
 
 # Distribution / packaging
@@ -102,3 +103,5 @@ ENV/
 
 archive/
 .idea/
+
+.s3config.json

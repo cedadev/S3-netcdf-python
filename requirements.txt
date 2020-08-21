@@ -1,0 +1,6 @@
+numpy==1.18.1
+Cython==0.29.15
+netCDF4==1.5.3
+botocore==1.15.15
+aiobotocore==0.12.0
+psutil==5.7.0
