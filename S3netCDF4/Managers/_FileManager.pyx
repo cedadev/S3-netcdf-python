@@ -1,6 +1,10 @@
 #!python
 #cython: language_level=3
 
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """
 File management for S3netCDF.  Operation:
 o. Files are opened from a single URL
@@ -26,8 +30,9 @@ import numpy as np
 import gc
 
 from S3netCDF4.Managers._ConfigManager import Config
-from S3netCDF4._Exceptions import *
-from S3netCDF4.Backends import *
+from S3netCDF4._Exceptions import IOException, MemoryException, APIException
+from S3netCDF4.Backends._s3aioFileObject import s3aioFileObject
+from S3netCDF4.Backends._s3FileObject import s3FileObject
 
 def generate_key(url):
     """Generate a key for the file manager to store a OpenFileRecord"""

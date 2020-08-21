@@ -1342,6 +1342,14 @@ class s3Dataset(object):
             # no other modes are supported
             raise APIException("Mode " + mode + " not supported.")
 
+    def __enter__(self):
+        """Allow with s3Dataset statements."""
+        return self
+
+    def __exit__(self, atype, value, traceback):
+        """Close on exit"""
+        self.close()
+
     def close(self):
         """Close the Dataset."""
         # write the metadata to (all) the file(s)

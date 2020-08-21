@@ -1,6 +1,10 @@
 import os
 from setuptools import Extension, setup
 from Cython.Build import cythonize
+s3nc_define_macros = [(
+    "NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"
+)]
+import numpy
 
 with open(os.path.join(os.path.dirname(__file__), 'README.md')) as readme:
     README = readme.read()
@@ -8,13 +12,8 @@ with open(os.path.join(os.path.dirname(__file__), 'README.md')) as readme:
 # allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
-s3nc_define_macros = [(
-    "NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"
-)]
-
 s3nc_extra_compile_args = ['-fno-strict-aliasing', '-O3']
 
-import numpy
 extensions = [
     Extension(
             name="S3netCDF4.Backends._s3aioFileObject",
@@ -105,7 +104,7 @@ extensions = [
 
 setup(
     name='S3netCDF4',
-    version='0.2.0',
+    version='2.0.1',
     packages=['S3netCDF4'],
     install_requires=[
       'numpy',

@@ -1,6 +1,10 @@
 #!python
 #cython: language_level=3
 
+__copyright__ = "(C) 2020 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """
 A very simple connection pool for S3netCDF.  This allows connections to be
 maintained to (for example) a AWS or object store.  The pool allows for the
