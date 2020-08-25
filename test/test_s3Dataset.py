@@ -123,11 +123,7 @@ def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
         tmp_var = ds.groups["test_group"].variables["tmp"]
     else:
         tmp_var = ds.variables["tmp"]
-    #tmp_var[0:365,0,0:73,0:72] = 25.0
     tmp_var[:,:,:,:] = 250.0
-    #tmp_var[0:365,0,36:,:] = 50.0
-    # tmp_var[0:10,0,0,0] = 12.5
-    # tmp_var[190,0,0,0] = np.array([50.0], 'f')
     vel_var = ds.variables["velocity"]
     vel_var[0] = 10.0
     ds.close()
@@ -144,7 +140,7 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print("Test reading {}".format(file_name))
     # open the dataset
     dr = s3Dataset(file_name, mode='r')
-    if format == "netCDF4" or format == "CFA4":
+    if format == "NETCDF4" or format == "CFA4":
         group = dr.groups["test_group"]
     else:
         group = dr
@@ -154,9 +150,7 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print(dr.variables["scl"])
 
     tmp_var = group.variables["tmp"]
-    x = tmp_var[:,0,0,0].squeeze()
-    print(x, x.shape)
-    # print(tmp_var[240:,0,0,0])
+    x = tmp_var[:,0,0,0]
     dr.close()
     return True
 
@@ -164,7 +158,6 @@ class s3DatasetTest(unittest.TestCase):
     # static class members
     # all path stubs the same
     path_stub = "/Users/dhk63261/Test/s3Dataset_test"
-    #path_stub = "s3://minio/dhk63261/Test/s3Dataset_test"
     res_deg = 2.5
 
     #

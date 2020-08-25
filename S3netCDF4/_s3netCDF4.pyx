@@ -805,12 +805,14 @@ class s3Variable(object):
                         )
                         # cache the data object
                         request_object.data_object = nc_sa_dataset
+                        request_object.file_object.close()
                         # indicate successfully open
                         self.file_manager.open_success(index.partition.file)
                     elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_IN_MEMORY:
                         nc_sa_dataset = request_object.data_object
                     elif request_object.open_state == OpenFileRecord.OPEN_EXISTS_ON_DISK:
                         nc_sa_dataset = request_object.data_object
+                        request_object.file_object.close()
 
                     # get the group if this variable is a member of a group
                     cfa_grp = self._cfa_var.getGroup()

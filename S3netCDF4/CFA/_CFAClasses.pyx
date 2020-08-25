@@ -1169,8 +1169,10 @@ cdef class CFAVariable:
                     ncp.variables["index"][it] = index
                     # +1 here as CFA 0.4 has location indices as inclusive,
                     # whereas Python and CFA 0.5 have them as exclusive
-                    ncp.variables["location"][it] = p["location"]
-                    ncp.variables["location"][it][:,1] += 1
+                    tmp_loc = np.array(p["location"])
+                    tmp_loc[:,1] += 1
+                    #tmp_loc[:,1] += 1
+                    ncp.variables["location"][it] = tmp_loc
                     ncp.variables["ncvar"][it] = p["subarray"]["ncvar"]
                     ncp.variables["file"][it] = p["subarray"]["file"]
                     ncp.variables["format"][it] = p["subarray"]["format"]
