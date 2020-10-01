@@ -68,7 +68,7 @@ latest version of pip into the virtual environment use the command:
 
 4. Install the S3netCDF4 library, directly from the github repository:
 
-  `pip install -e git+https://github.com/cedadev/S3-netcdf-python.git`
+  `pip install -e git+https://github.com/cedadev/S3-netcdf-python.git#egg=S3netCDF4`
 
 5. Copy the configuration template file from `config/.s3nc4.json.template` to
 `~/.s3nc4.json` and fill in the values for the variables.  See the section
