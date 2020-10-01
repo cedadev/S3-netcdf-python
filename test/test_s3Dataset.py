@@ -2,6 +2,7 @@ from S3netCDF4._s3netCDF4 import s3Dataset as s3Dataset
 from S3netCDF4._Exceptions import APIException
 import numpy as np
 import unittest
+import os
 
 DEBUG = False
 
@@ -129,7 +130,7 @@ def test_s3Dataset_write(path_stub, format="NETCDF4", cfa_version="0.4",
     ds.close()
     return True
 
-def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
+def test_s3Dataset_read(path_stub, format="NETCDF4", cfa_version=None):
     """Test writing out a s3Dataset, for one of the various permutations of:
         1. file format (netCDF3 or netCDF4)
         2. whether it is a S3-netCDF / CFA file or a plain netCDF file
@@ -140,13 +141,16 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
         print("Test reading {}".format(file_name))
     # open the dataset
     dr = s3Dataset(file_name, mode='r')
+    if DEBUG:
+        print(dr.groups)
+
     if format == "NETCDF4" or format == "CFA4":
-        group = dr.groups["test_group"]
+        grp = dr.groups["test_group"]
     else:
-        group = dr
+        grp = dr
 
     if DEBUG:
-        print(group.variables["tmp"])
+        print(grp.variables["tmp"])
         print(dr.variables["scl"])
 
     tmp_var = group.variables["tmp"]
@@ -157,7 +161,7 @@ def test_s3Dataset_read(path_stub, format="netCDF4", cfa_version=None):
 class s3DatasetTest(unittest.TestCase):
     # static class members
     # all path stubs the same
-    path_stub = "/Users/dhk63261/Test/s3Dataset_test"
+    path_stub = os.environ["HOME"] + "/Test/s3Dataset_test"
     res_deg = 2.5
 
     #
