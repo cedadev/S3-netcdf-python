@@ -80,16 +80,16 @@ class s3FileObject(io.BufferedIOBase):
             backend_config = {}
 
         if part_size:
-            self._part_size = part_size
+            self._part_size = int(part_size)
         elif "maximum_part_size" in backend_config:
-            self._part_size = backend_config["maximum_part_size"]
+            self._part_size = int(backend_config["maximum_part_size"])
         else:
-            self._part_size = 50 * 1024 * 1024
+            self._part_size = int(50 * 1024 * 1024)
 
         if max_parts:
-            self._max_parts = max_parts
+            self._max_parts = int(max_parts)
         elif "maximum_parts" in backend_config:
-            self._max_parts = backend_config["maximum_parts"]
+            self._max_parts = int(backend_config["maximum_parts"])
         else:
             self._max_parts = 8
 
@@ -349,7 +349,8 @@ class s3FileObject(io.BufferedIOBase):
                 # free the old memory
                 self._buffer[buffer_part].close()
             else:
-                new_buffer.append(self._buffer[buffer_part])
+                self._buffer[buffer_part].seek(0)
+                new_buffer.append(io.BytesIO(self._buffer[buffer_part].read()))
 
         self._buffer = new_buffer
 
