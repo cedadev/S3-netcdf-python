@@ -267,6 +267,9 @@ class FileManager(object):
         _fo = FileObject()
         _fo._mode = mode
 
+        # check whether a glob_url or not
+        is_glob_url = ('*' in url or '?' in url)
+
         # split the url into the scheme, netloc, etc.
         url_o = urlparse(url)
         # the alias is the scheme + "://" + netloc
@@ -305,7 +308,7 @@ class FileManager(object):
                 if not "b" in mode:
                     open_mode = mode + "b"
                 # check if it's a directory or not, or contains glob wildcards
-                if (os.path.isdir(url) or '*' in url or '?' in url):
+                if (os.path.isdir(url) or is_glob_url):
                     _fo.file_handle = None
                 else:
                     _fo.file_handle = open(url, mode=open_mode)
@@ -534,6 +537,8 @@ class FileManager(object):
         """
         # generate the key from hashing the url and adding the mode
         key = generate_key(url)
+        # is this a url that is to be globbed (don't get the size if it is)
+        is_glob_url = ('*' in url or '?' in url)
         #
         if (key in self._open_files):
             # See if the file exists in memory, and check the mode the file is
@@ -551,7 +556,7 @@ class FileManager(object):
                 self._open_files[key].open_mode = mode
                 # see the notes below about checking for file size
                 if fo.remote_system:
-                    if size == 0 and (mode == 'r' or mode == 'a'):
+                    if size == 0 and (mode == 'r' or mode == 'a') and not is_glob_url:
                         req_size = fo.size()
                         # if FileManager.__size_greater_than_memory(req_size):
                         #     print("Trying to stream a file that exceeds "
@@ -594,7 +599,7 @@ class FileManager(object):
                     # matter how big it is currently - so only do this check
                     # for reading or appending, where we actually are going to
                     # stream the file into memory
-                    if size == 0 and (mode == 'r' or mode == 'a'):
+                    if size == 0 and (mode == 'r' or mode == 'a') and not is_glob_url:
                         req_size = fo.size()
                         # if FileManager.__size_greater_than_memory(req_size):
                         #     print("Trying to stream a file that exceeds "

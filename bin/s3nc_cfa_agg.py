@@ -242,7 +242,8 @@ def get_file_list(path):
     # open the directory as a FileManager object
     fm = FileManager()
     path = os.path.expanduser(path)
-    file_object = fm._open(path)
+    request_object = fm.request_file(path)
+    file_object = request_object.file_object
 
     # get a list of files using the file object if it is a remote system
     if (file_object.remote_system):
