@@ -1,11 +1,27 @@
 S3netCDF-python
 
-Changes between v2.0.4 and 2.0.5
---------------------------------
+Changes between v2.0.4 and v2.0.5
+---------------------------------
 1. Added support for reading unequal sized partitions.  These may occur in files written by the s3_nc_cfa_agg.py program.
 
-Changes between v0.2 and v2.0:
-------------------------------
+Changes between v2.0.3 and v2.0.4
+---------------------------------
+1. s3nc_cfa_agg.py now uses FileManager.request_file rather than FileManager._open.  More elegant and API focused.
+2. FileManager.request_file is now compatible with passing globs into it as the filename parameter.
+
+Changes between v2.0.2 and v2.0.3
+---------------------------------
+1. Fixed a problem where a BytesIO buffer was being passed by reference rather than copied, leading to a "file operation on unopened file" error.
+2. Corrected install procedure in README.
+3. Corrected bug in test_s3Dataset_read.
+
+Changes between v2.0.1 and v2.0.2
+---------------------------------
+1. Fixed unreleased file for Datasets on disk
+2. Fixed incorrect parsing for CFA 0.4
+
+Changes between v0.2 and v2.0.1:
+--------------------------------
 1. complete rewrite
 2. v0.5 CFA
 3. partition matrix represented internally by netCDF Dataset
