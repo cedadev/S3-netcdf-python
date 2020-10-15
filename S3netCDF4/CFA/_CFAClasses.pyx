@@ -993,7 +993,7 @@ cdef class CFAVariable:
                             # check that the partition has a location matching
                             # the slices for this dimension
                             if (slices[d,0] >= location[d,0] and
-                                slices[d,1] <= location[d,1]):
+                                slices[d,0] < location[d,1]):
                                 # exit case
                                 break
 
@@ -1006,7 +1006,7 @@ cdef class CFAVariable:
                                 current_index = tuple(current_index)
                             # if the starting slice should be in the next
                             # partition (greater than end location)
-                            if slices[d,0] > location[d,1]:
+                            if slices[d,0] >= location[d,1]:
                                 current_index = list(current_index)
                                 current_index[d] += 1
                                 current_index = tuple(current_index)
