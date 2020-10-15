@@ -825,14 +825,14 @@ read in, other files may be "shuffled" out of memory if the currently used
 memory exceeds the `resource_allocation: memory` setting in the `~/.s3nc.json`
 config file.  See [Resource Usage](#resource).
 
-*Example 7: Read a netCDF file from disk*<a name=example-8></a>
+*Example 7: Read a netCDF file from disk*<a name=example-7></a>
 ```
 from S3netCDF4._s3netCDF4 import s3Dataset as Dataset
 with Dataset("/Users/neil/test_dataset_nc4.nc", 'r') as nc_data:
     print(nc_data.variables)
 ```
 
-*Example 8: Read a CFA-netCDF file from S3 storage*<a name=example-9></a>
+*Example 8: Read a CFA-netCDF file from S3 storage*<a name=example-8></a>
 ```
 from S3netCDF4._s3netCDF4 import s3Dataset as Dataset
 from S3netCDF4 import s3Dataset as Dataset
@@ -874,7 +874,7 @@ instance for `<variable_name>` if the variable is a **master-array** in a CFA-
 netCDF file, or a `netCDF4.Variable` instance if it is a dimension variable, or
 a variable in a standard netCDF file.
 
-*Example 9: Read a netCDF file from disk and get the "field8" variable*<a name=example-10></a>
+*Example 9: Read a netCDF file from disk and get the "field8" variable*<a name=example-9></a>
 ```
 from S3netCDF4 import s3Dataset as Dataset
 with Dataset("/Users/neil/test_dataset_nc4.nc") as src_file:
@@ -891,8 +891,7 @@ exactly the same way as in the standard netCDF4 python package, by querying the
 member variable of either a Variable or Dataset.  The `ncattrs` and `getncattr`
 member functions of the `Dataset` and `Variable` classes are also supported.
 
-*Example 10: Read a netCDF file, a variable and its metadata*<a name=example-
-9></a>
+*Example 10: Read a netCDF file, a variable and its metadata*<a name=example-10></a>
 ```
 from S3netCDF4 import s3Dataset as Dataset
 with Dataset("/Users/neil/test_dataset_nc4.nc") as src_file:
