@@ -17,7 +17,6 @@ from S3netCDF4.Managers._FileManager import FileManager
 
 def add_var_dims(in_object, out_object, axis, fname):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
-    print(fname)
     # create dimension, get the axis dimension location
     axis_dim_n = -1
     for d, dim in enumerate(in_object.dimensions):

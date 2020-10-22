@@ -104,14 +104,14 @@ extensions = [
 
 setup(
     name='S3netCDF4',
-    version='2.0.5',
+    version='2.0.6',
     packages=['S3netCDF4'],
     install_requires=[
       'numpy',
       'cython',
       'netcdf4',
-      'botocore==1.15.15',
-      'aiobotocore==0.12.0',
+      'botocore',
+      'aiobotocore',
       'psutil',
     ],
     ext_modules=cythonize(extensions),

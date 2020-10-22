@@ -198,6 +198,9 @@ class s3aioFileObject(object):
                           aws_secret_access_key=self._credentials["secretKey"],
                           config=config
                       )
+                # call await s3c.__aenter__ : this is needed for newer versions
+                # of aiobotocore
+                s3c = await s3c.__aenter__()
                 # add the connection to the connection pool
                 self._conn_obj = s3aioFileObject._connection_pool.add(
                      s3c, self._server
