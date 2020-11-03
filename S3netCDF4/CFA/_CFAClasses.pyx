@@ -989,8 +989,8 @@ cdef class CFAVariable:
                 # If there are unequal sized partitions in the partition
                 # matrix then the wrong partition will be found
                 # copy the current index
+                current_index = tuple(index)
                 if slices is not None:
-                    current_index = tuple(index)
                     n_dims = len(ncp.variables["shape"][current_index])
                     for d in range(0, n_dims):
                         while True:
