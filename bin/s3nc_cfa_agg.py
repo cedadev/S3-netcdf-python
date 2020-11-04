@@ -15,7 +15,24 @@ from S3netCDF4._s3netCDF4 import s3Dataset as s3Dataset
 from S3netCDF4.CFA._CFAClasses import CFAPartition
 from S3netCDF4.Managers._FileManager import FileManager
 
-def add_var_dims(in_object, out_object, axis, fname):
+from netCDF4 import num2date, date2num
+
+def get_universal_times(nc_var, common_date):
+    # get the start date and calendar
+    if ("units" in nc_var.ncattrs() and
+        "calendar" in nc_var.ncattrs() and
+        common_date is not None):
+        date_values = num2date(nc_var[:],
+                        nc_var.units,
+                        nc_var.calendar)
+        axis_dim_values = date2num(date_values,
+                                   common_date,
+                                   nc_var.calendar)
+    else:
+        axis_dim_values = axis_dim_var[:]
+    return axis_dim_values
+
+def add_var_dims(in_object, out_object, axis, fname, common_date):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
     # create dimension, get the axis dimension location
     axis_dim_n = -1
@@ -79,17 +96,29 @@ def add_var_dims(in_object, out_object, axis, fname):
                 # get the location along the aggregation axis in the Master Array,
                 # from the axis dimension variable
                 location = np.zeros([n_dims, 2],'i')
+
+            # check whether the axis is in the dimensions of the input_variable
+            # and calculate the location from it if it is
             if axis in in_var.dimensions:
+                # get the values of the axis variable
                 axis_dim_var = in_object.variables[axis]
+                # if this is a time variable then covert the values to a common
+                # calendar
+                if axis_dim_var.name == "time" or axis_dim_var.name[0] == "t":
+                    # get the start date and calendar
+                    axis_dim_values = get_universal_times(
+                        axis_dim_var, common_date
+                    )
+
                 # get the axis resolution - i.e. the difference for each step
                 # along the axis
                 try:
-                    axis_res = axis_dim_var[1] - axis_dim_var[0]
+                    axis_res = (axis_dim_values[-1] - axis_dim_values[0]) / len(axis_dim_values)
                 except IndexError:
                     axis_res = 1
                 # set the location for the aggregating axis dimension
-                location[axis_dim_n, 0] = int(axis_dim_var[0] / axis_res)
-                location[axis_dim_n, 1] = int(axis_dim_var[-1] / axis_res) + 1
+                location[axis_dim_n, 0] = int(axis_dim_values[0] / axis_res)
+                location[axis_dim_n, 1] = location[axis_dim_n, 0] + len(axis_dim_var)
                 # set the locations for the other dimensions - equal to 0 to the
                 # shape of the array
                 for d, dim in enumerate(out_var.dimensions):
@@ -126,15 +155,21 @@ def add_var_dims(in_object, out_object, axis, fname):
             # assign the values from the input variable to the output variable
             # if it is the axis variable then append / concatenate
             if var == axis:
-                var_vals = in_object.variables[var][:]
+                var_vals = in_object.variables[var]
                 axl = out_var._nc_var.shape[axis_dim_n]
-                out_var[axl:] = var_vals[:]
+                # convert times here as well
+                out_var[axl:] = get_universal_times(var_vals, common_date)
             else:
                 out_var[:] = in_object.variables[var][:]
-            # set the attributes
+            # update the in_var_attrs to the new common_date if applicable
+            if (common_date is not None and
+                "units" in in_var_attrs and
+                in_var.name == axis):
+                in_var_attrs["units"] = common_date
             out_var.setncatts(in_var_attrs)
 
-def create_partitions_from_files(out_dataset, files, axis, cfa_version):
+def create_partitions_from_files(out_dataset, files, axis,
+                                 cfa_version, common_date):
     """Create the CFA partitions from a list of files."""
     # loop over the files and open as a regular netCDF4 Dataset
     for fname in files:
@@ -158,10 +193,10 @@ def create_partitions_from_files(out_dataset, files, axis, cfa_version):
                 x: in_group.getncattr(x) for x in in_group.ncattrs()
             }
             out_group._cfa_grp.metadata.update(in_group_attrs)
-            add_var_dims(in_group, out_group, axis, fname)
+            add_var_dims(in_group, out_group, axis, fname, common_date)
 
         # add the variables in the root group
-        add_var_dims(in_dataset, out_dataset, axis, fname)
+        add_var_dims(in_dataset, out_dataset, axis, fname, common_date)
         in_dataset.close()
 
 def sort_partition_matrix(out_var, axis):
@@ -169,11 +204,9 @@ def sort_partition_matrix(out_var, axis):
     # get the index of the axis that we are aggregating over
     try:
         axis_dim_n = out_var._cfa_var.getPartitionMatrixDimensions().index(axis)
-        # get the partition shape
-        part_shape = out_var._cfa_var.getPartitionMatrixShape()
         # create the index
         n_dims = len(out_var._cfa_var.getDimensions())
-        # get the location values from the partition
+        # get the location values from the values
         locs = out_var._cfa_var.getPartitionValues(key="location").squeeze()
         # get the first (start) location values and get the order to sort them
         # in
@@ -192,8 +225,17 @@ def sort_partition_matrix(out_var, axis):
             source_part.index[axis_dim_n] = i
             # add to the list
             new_parts.append(source_part)
-        # now rewrite the partitions
-        for part in new_parts:
+        # now rewrite the partitions, and ensure their integrity - i.e. make
+        # sure that the axis partitions are the right length
+        for p in range(len(new_parts)):
+            part = new_parts[p]
+            if p > 0:
+                # align with previous partition
+                prev_part = new_parts[p-1]
+                part.location[axis_dim_n,0] = prev_part.location[axis_dim_n,1]
+            # make sure end of partition aligns with shape of array
+            part.location[axis_dim_n,1] = (part.location[axis_dim_n,0] +
+                part.shape[axis_dim_n])
             out_var._cfa_var.writePartition(part)
 
     except ValueError:
@@ -261,7 +303,8 @@ def get_file_list(path):
         files = glob(path)
     return files
 
-def aggregate_into_CFA(output_master_array, path, axis, cfa_version):
+def aggregate_into_CFA(output_master_array, path, axis,
+                       cfa_version, common_date=None):
     """Aggregate the netCDF files in directory into a CFA master-array file"""
     # get the list of files first of all
     files = get_file_list(path)
@@ -276,7 +319,8 @@ def aggregate_into_CFA(output_master_array, path, axis, cfa_version):
     )
     # create the partitions from the list - these will be created in the order
     # that the files are read in
-    create_partitions_from_files(out_dataset, files, axis, cfa_version)
+    create_partitions_from_files(out_dataset, files, axis,
+                                 cfa_version, common_date)
     # we need to sort the partition matrices for each variable - i.e. there is
     # one matrix per variable
     sort_partition_matrices(out_dataset, axis)
@@ -319,7 +363,16 @@ if __name__ == "__main__":
         help=("Axis to aggregate along, default=time")
     )
 
+    parser.add_argument(
+        "--common_date", action="store", default=None,
+        help=("Common start time across all files")
+    )
+
     args = parser.parse_args()
 
     if args.output and args.dir:
-        aggregate_into_CFA(args.output, args.dir, args.axis, args.cfa_version)
+        aggregate_into_CFA(args.output,
+                           args.dir,
+                           args.axis,
+                           args.cfa_version,
+                           args.common_date)
