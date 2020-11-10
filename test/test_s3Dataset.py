@@ -153,7 +153,7 @@ def test_s3Dataset_read(path_stub, format="NETCDF4", cfa_version=None):
         print(grp.variables["tmp"])
         print(dr.variables["scl"])
 
-    tmp_var = group.variables["tmp"]
+    tmp_var = grp.variables["tmp"]
     x = tmp_var[:,0,0,0]
     dr.close()
     return True
