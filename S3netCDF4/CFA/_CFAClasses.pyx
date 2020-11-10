@@ -725,7 +725,7 @@ cdef class CFAVariable:
         cdef list target_slice          # slice in the target master array
         cdef list return_list
         cdef np.ndarray slices                # don't use slices, use nx3
-        cdef list part_slice_range            # dimesional numpy arrays
+        #cdef list part_slice_range            # dimesional numpy arrays
         cdef list part_index_list             # for speed!
         cdef list new_index_list
         cdef int s, x, n                      # iterator variables
@@ -771,47 +771,29 @@ cdef class CFAVariable:
                     "Index into CFA array is out of range: {}".format(
                         in_key)
                     )
-        # now we have the slices we can determine the partitions, using the
-        # partition shape
-        i_per_part = (shape / self.pmshape)
-        part_slice_range = []
-        for s in range(0, key_l):
-            # append the start / stop of the partition indices for each axis
-            start = int(slices[s,0] / i_per_part[s])
-            end = int(slices[s,1] / i_per_part[s])
-            # the code below ensures that the first index is always present,
-            # even when start == end
-            sl = [start]
-            start += 1
-            while start < end:
-                sl.append(start)
-                start += 1
-            part_slice_range.append(sl)
-        """Generate all possible combinations of the indices.
-        indices should contain an iterator (list, array, etc) of iterators,
-        where each of the sub-iterators contains the indices required for that
-        dimension.
-        e.g.: indices = [np.arange(1,4),  # t axis for cf-netcdf file
-                         np.arange(0,1),  # z axis
-                         np.arange(6,9),  # y axis
-                         np.arange(2,3)]  # x axis
-        """
+
+        # replaced "clever" search with brute force search for now
+        ncp = self.nc_partition_group
+        # iterate over the indices and find each index that the slice is within
+        it = np.nditer(ncp.variables["ncvar"],
+                       flags=["multi_index", "refs_ok"])
+        # store the indices
         part_index_list = []
-        # build the first dimension
-        for x in range(0, len(part_slice_range[0])):
-            part_index_list.append([part_slice_range[0][x]])
-        # loop over all of the other dimensions
-        for n in range(1, len(part_slice_range)):
-            new_index_list = []
-            for x in range(0, len(part_index_list)):
-                for y in range(0, len(part_slice_range[n])):
-                    # make a copy of the index list
-                    z = copy(part_index_list[x])
-                    # append the value
-                    z.append(part_slice_range[n][y])
-                    # add to the new list
-                    new_index_list.append(z)
-            part_index_list = copy(new_index_list)
+        for i in it:
+            ncvar  = ncp.variables["ncvar"][it.multi_index]
+            # don't include out any undefinied partitions
+            if ncvar == "":
+                continue
+            location = ncp.variables["location"][it.multi_index]
+            # inclusion test
+            add_part = 0
+            for d in range(0, key_l):
+                if ((location[d,0] >= slices[d,0] and
+                     location[d,0] < slices[d,1])):
+                    add_part += 1
+                # add the partition if it matches in all dimensions
+                if add_part == key_l:
+                    part_index_list.append(it.multi_index)
 
         # now get the partition filenames, with the variable and the source
         # and target slices necessary to copy a slice from a subarray to a
@@ -981,60 +963,13 @@ cdef class CFAVariable:
             if np.ma.is_masked(location):
                 part = self.__definePartition(index)
             else:
-                # partition has already been defined, either previously on a
-                # slice, or by loading it in
-                # we need to make sure we have found the correct partition
-                # The partition is found by to dividing the slice by the
-                # partition matrix size.
-                # If there are unequal sized partitions in the partition
-                # matrix then the wrong partition will be found
-                # copy the current index
-                current_index = tuple(index)
-                if slices is not None:
-                    n_dims = len(ncp.variables["shape"][current_index])
-                    for d in range(0, n_dims):
-                        while True:
-                            # get the partition shape and the locations
-                            location = ncp.variables["location"][current_index]
-                            # if the partition doesn't exist then make it and
-                            # return it
-                            if np.ma.is_masked(location):
-                                part = self.__definePartition(current_index)
-                            # check that the partition has a location matching
-                            # the slices for this dimension
-                            if (slices[d,0] >= location[d,0] and
-                                slices[d,0] < location[d,1]):
-                                # exit case
-                                break
-
-                            # if the starting slice should be in the previous
-                            # partition (less than start location)
-                            if slices[d,0] < location[d,0]:
-                                # need to flip flop between tuple and list
-                                current_index = list(current_index)
-                                current_index[d] -= 1
-                                current_index = tuple(current_index)
-                            # if the starting slice should be in the next
-                            # partition (greater than end location)
-                            if slices[d,0] >= location[d,1]:
-                                current_index = list(current_index)
-                                current_index[d] += 1
-                                current_index = tuple(current_index)
-                            if (current_index[d] < 0 or
-                                current_index[d] >= self.pmshape[d]):
-                                raise CFAPartitionIndexError(
-                "Cannot map index: {} to a partition, for variable: {}".format(
-                                        index, self.var_name
-                                    )
-                                )
-
                 part = CFAPartition(
-                    index = ncp.variables["index"][current_index],
-                    location = ncp.variables["location"][current_index],
-                    ncvar = ncp.variables["ncvar"][current_index],
-                    file = ncp.variables["file"][current_index],
-                    format = ncp.variables["format"][current_index],
-                    shape = ncp.variables["shape"][current_index]
+                    index = ncp.variables["index"][index],
+                    location = ncp.variables["location"][index],
+                    ncvar = ncp.variables["ncvar"][index],
+                    file = ncp.variables["file"][index],
+                    format = ncp.variables["format"][index],
+                    shape = ncp.variables["shape"][index]
                 )
 
         except IndexError as ie:
