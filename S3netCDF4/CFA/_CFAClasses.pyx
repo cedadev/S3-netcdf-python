@@ -725,9 +725,7 @@ cdef class CFAVariable:
         cdef list target_slice          # slice in the target master array
         cdef list return_list
         cdef np.ndarray slices                # don't use slices, use nx3
-        #cdef list part_slice_range            # dimesional numpy arrays
         cdef list part_index_list             # for speed!
-        cdef list new_index_list
         cdef int s, x, n                      # iterator variables
 
         # try to get the length or convert to list
@@ -788,8 +786,16 @@ cdef class CFAVariable:
             # inclusion test
             add_part = 0
             for d in range(0, key_l):
-                if ((location[d,0] >= slices[d,0] and
-                     location[d,0] < slices[d,1])):
+                # three cases:
+                # 1. l0 <= s0 < l1         (this is the starting slice {ss})
+                # 2. l0 >= s0 and l1 <= s1 (these are the middle slices {ms})
+                # 3. l0 <= s1 and l1 >= s1 (this is the end slice {es})
+                ss = location[d,0] <= slices[d,0] and slices[d,0] < location[d,1]
+                ms = location[d,0] >= slices[d,0] and location[d,1] <= slices[d,1]
+                es = location[d,0] <= slices[d,1] and location[d,1] >= slices[d,1]
+
+                # logical or these for whether the slice is contained in this dimension
+                if (ss or ms or es):
                     add_part += 1
                 # add the partition if it matches in all dimensions
                 if add_part == key_l:
