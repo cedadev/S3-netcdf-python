@@ -68,15 +68,19 @@ class Config(object):
     """
 
     def __init__(self):
-        """Initialise S3netCDF4 for this user by reading the config file from their
-        home directory.  Config file is called ~/.s3nc.json"""
-        # First read the JSON config file from the user home directory
+        """Initialise S3netCDF4 for this user by reading the config file from
+        their home directory.  Config file is called ~/.s3nc.json"""
+        # Read the JSON config file from the user home directory or from a path
+        # set by the environment variable "S3_NC_CONFIG"
         # get user home directory
         user_home = os.environ["HOME"]
 
-        # create the path
-        sl_config_path = os.path.join(user_home, ".s3nc.json")
+        # create the default path to the config file
+        sl_config_default = os.path.join(user_home, ".s3nc.json")
 
+        # try to get the path from the environment variable, but default to
+        # above if environment variable not set
+        sl_config_path = os.getenv("S3_NC_CONFIG", sl_config_default)
         # open the file
         try:
             fp = open(sl_config_path)

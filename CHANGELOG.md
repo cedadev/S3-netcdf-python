@@ -1,4 +1,12 @@
 S3netCDF-python
+---------------
+
+Changes between v2.0.6 and v2.0.8
+---------------------------------
+1. Bug fix for indexing.
+2. Changed the name of the template config file and the name in the README.md file to match the code.
+3. Allow an environment variable "S3_NC_CONFIG" to be set to point to the config file.
+4. Fixed bug in previous file that prevented writing CFA sub-array files (!)
 
 Changes between v2.0.5 and v2.0.6
 ---------------------------------

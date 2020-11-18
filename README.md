@@ -70,8 +70,8 @@ latest version of pip into the virtual environment use the command:
 
   `pip install -e git+https://github.com/cedadev/S3-netcdf-python.git#egg=S3netCDF4`
 
-5. Copy the configuration template file from `config/.s3nc4.json.template` to
-`~/.s3nc4.json` and fill in the values for the variables.  See the section
+5. Copy the configuration template file from `config/.s3nc.json.template` to
+`~/.s3nc.json` and fill in the values for the variables.  See the section
 [Configuration](#configuration).
 
 6. Run a test to ensure the package has installed correctly:
@@ -88,17 +88,28 @@ S3netCDF4 relies on a configuration file to resolve endpoints for the S3
 services, and to control various aspects of the way the package operates.  This
 config file is a JSON file and is located in the user's home directory:
 
-`~/.s3nc4.json`
+`~/.s3nc.json`
 
 In the git repository a templatised example of this configuration file is
 provided:
 
-`config/.s3nc4.json.template`
+`config/.s3nc.json.template`
 
 This can be copied to the user's home directory, and the template renamed to
-`~/.s3nc4.json`.  The variables in the template should then be filled in.  This
-file is a [jinja2](http://jinja.pocoo.org/docs/2.10/) template of a JSON file,
-and so can be used within an [ansible](https://www.ansible.com/) deployment.  
+`~/.s3nc.json`.  
+
+Alternatively, an environment variable `S3_NC_CONFIG` can be set to define the
+location and name of the configuration file.  This can also be set in code,
+before the import of the S3netCDF4 module:
+
+    import os
+    os.environ["S3_NC_CONFIG"] = "/Users/neil/.s3nc_different_config.json"
+    from S3netCDF4._s3netCDF4 import s3Dataset
+
+Once the config file has been copied, the variables in the template should then
+be filled in.  This file is a [jinja2](http://jinja.pocoo.org/docs/2.10/)
+template of a JSON file, and so can be used within an
+[ansible](https://www.ansible.com/) deployment.  
 Each entry in the file has a key:value pair.  An example of the file is given
 below:
 
@@ -219,7 +230,7 @@ test_dataset = Dataset("s3://tenancy-0/test/test2.nc", "r")
 On creation of the `s3Dataset` object, the S3netCDF4 package reads the
 filename, determines that the filename starts with `s3://`, reads the next
 part of the string up to the next `/` (which equates to `tenancy-0` in this
-cases) and searches through the aliases defined in the `~/.s3nc4.json` file to
+cases) and searches through the aliases defined in the `~/.s3nc.json` file to
 find a matching alias.  If one is not found it will return an error message,
 if it is found then it will establish a connection to that S3 server, using the
 `url`, `accessKey` and `secretKey` defined for that server.  It is over this
@@ -230,7 +241,7 @@ connection that all the data transfers for this `s3Dataset` take place.
 ## Caching
 If the user requests to read a variable, or a slice of a variable, that is
 larger than either the host machines physical memory or the
-`resource_allocation: memory` setting in `~/.s3nc4.json`, then S3netCDF4 will
+`resource_allocation: memory` setting in `~/.s3nc.json`, then S3netCDF4 will
 use two strategies to enable reading very large arrays:
 * a Numpy memory mapped array is used as the "target array", which will
 contain the data requested by the user.  This is stored in a locally cached
@@ -794,7 +805,7 @@ netCDF4** and **CFA-netCDF3** files from a POSIX filesystem, Amazon S3 object
 store and OPeNDAP.  
 For files on remote storage, before reading the file, S3netCDF4 will query
 the file size and determine whether it is greater than the
-`resource_allocation: memory` setting in the `~/.s3nc4.json` configuration or
+`resource_allocation: memory` setting in the `~/.s3nc.json` configuration or
 greater than the current available memory.  If it is, then some files will be
 "shuffled" out of memory until there is enough allocated memory available.  See
 [Resource Usage](#resource) for more details.  If it is less than the
@@ -915,7 +926,7 @@ data:
 the same manner as the standard netCDF4-python package.  If the file is
 residing on S3 storage, then the entire file will be streamed to memory, if
 it is larger than the `resource_allocation: memory` setting in `~/
-.s3nc4.json`, or larger than the available memory, then a memory error will
+.s3nc.json`, or larger than the available memory, then a memory error will
 be returned.
 2. If the file is determined to have `format=CFA3` or `format=CFA4` then just
 the **master-array** file is read in and any field data will only be read
