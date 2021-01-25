@@ -458,14 +458,16 @@ class s3Variable(object):
                 memory = request_object.file_object.read()
             else:
                 memory = 0
+            fname = "inmemory.nc"
         else:
             diskless = s3d._creation_params["diskless"]
             memory = s3d._creation_params["memory"]
+            fname = index.partition.file
 
         # create the subarray dataset with the creation parameters from the
         # parameters determined above and the creation params
         nc_sa_dataset = netCDF4.Dataset(
-            index.partition.file,
+            fname,
             mode=mode,
             format=s3d._creation_params["format"],
             clobber=s3d._creation_params["clobber"],
