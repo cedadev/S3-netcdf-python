@@ -25,26 +25,26 @@ from S3netCDF4.CFA._CFASplitter import CFASplitter
 cdef class CFADataset:
     """
        Class containing details of a CFADataset (master array)
-       +------------------------------------------------+
-       | CFADataset                                     |
-       +------------------------------------------------+
-       | name               string                      |
-       | format             string                      |
-       | cfa_version        string                      |
-       | cfa_groups         dict<CFAGroups>             |
-       | metadata           dict<mixed>                 |
-       +------------------------------------------------+
-       | CFAGroup           createGroup(string grp_name,|
-       |                                dict metadata)  |
-       | CFAGroup           getGroup(string grp_name)   |
-       | bool               renameGroup(string old_name,|
-       |                                string new_name)|
-       | list<basestring>   getGroups()                 |
-       | string             getName()                   |
-       | string             getFormat()                 |
-       | basestring         getCFAVersion()             |
-       | dict<mixed>        getMetadata()               |
-       +------------------------------------------------+
+       +----------------------------------------------------------------------+
+       | CFADataset                                                           |
+       +----------------------------------------------------------------------+
+       | name               string                                            |
+       | format             string                                            |
+       | cfa_version        string                                            |
+       | cfa_groups         dict<CFAGroups>                                   |
+       | metadata           dict<mixed>                                       |
+       +----------------------------------------------------------------------+
+       | CFAGroup           createGroup(string grp_name,                      |
+       |                                dict metadata)                        |
+       | CFAGroup           getGroup(string grp_name)                         |
+       | bool               renameGroup(string old_name,                      |
+       |                                string new_name)                      |
+       | list<basestring>   getGroups()                                       |
+       | string             getName()                                         |
+       | string             getFormat()                                       |
+       | basestring         getCFAVersion()                                   |
+       | dict<mixed>        getMetadata()                                     |
+       +----------------------------------------------------------------------+
     """
 
     cdef basestring name
@@ -63,13 +63,16 @@ cdef class CFADataset:
         """
             Initialise a CFADataset object
             Args:
-                name: the name of the dataset
+                name (string): the name of the dataset
                 cfa_groups (dict): A dictionary containing the groups in the
                     Dataset.  There will always be at least one group.  If the
                     input data does not have groups, then a 'root' group should
                     be created.
                 format (string): the format (datamodel) of the Dataset
-                metadata (string): The metadata for the Dataset
+                cfa_version (string): the version of the CFA conventions used,
+                    either 0.4 or 0.5.
+                metadata (dict): The external metadata for the Dataset, i.e. the
+                    metadata in the original netCDF file
             Returns:
                 None
         """
@@ -101,7 +104,17 @@ cdef class CFADataset:
         return repstr[:-1]
 
     def __getitem__(CFADataset self, basestring grp_name):
-        """Overload the getitem to return a group"""
+        """
+            Overload the getitem to return a group.
+            Args:
+                grp_name (string): the name of the group to return
+
+            Returns:
+                CFAGroup: the instance of the group with name of grp_name
+                
+            Exceptions:
+
+        """
         return self.getGroup(grp_name)
 
     def __getattr__(CFADataset self, basestring name):
