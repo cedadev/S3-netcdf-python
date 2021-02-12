@@ -581,10 +581,10 @@ class s3Variable(object):
                 # add the dimension variable data - i.e. the domain
                 # this is a subslice of the dimension variable from same named
                 # variable in the master array dataset / group
-
-                nc_sa_dim_var[:] = (nc_grp.variables[dim_name][
-                    index.partition.location[d][0]:index.partition.location[d][1]
-                ])
+                if (dim_name in nc_grp.variables):
+                    nc_sa_dim_var[:] = (nc_grp.variables[dim_name][
+                  index.partition.location[d][0]:index.partition.location[d][1]
+                  ])
                 d += 1
 
         # create the field variable
