@@ -169,6 +169,9 @@ def split_into_CFA(output_path, input_path,
         # copy group variables
         copy_vars(nc_ds, s3_ds, subarray_size, subarray_shape)
 
+    # close the s3Dataset - super important as everything gets written on close
+    s3_ds.close()
+
 if __name__ == "__main__":
     # set up and parse the arguments
     parser = argparse.ArgumentParser(
