@@ -104,7 +104,7 @@ extensions = [
 
 setup(
     name='S3netCDF4',
-    version='2.0.10',
+    version='2.0.11',
     packages=['S3netCDF4'],
     install_requires=[
       'numpy>=1.19.0',

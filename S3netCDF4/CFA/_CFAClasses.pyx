@@ -425,13 +425,13 @@ cdef class CFAGroup:
                 )
             else:
                 # check the size of the specified subarray
-                if len(subarray_shape) != len(dim_names):
+                if subarray_shape.size != len(dim_names):
                     raise CFASubArrayError(
                         "Number of dimensions in subarray_shape does not match"
                         " those in shape."
                     )
                 # check each dimension is not longer than that in array
-                for i in range(0, len(subarray_shape)):
+                for i in range(0, subarray_shape.size):
                     if subarray_shape[i] > self.cfa_dims[dim_names[i]].getLen():
                         raise CFASubArrayError(
                             "Dimension in desired sub_array is larger than"
@@ -902,10 +902,16 @@ cdef class CFAVariable:
         """Create the file name path that is common between all subarray files"""
         # create the base filename
         file_path = self.getGroup().getDataset().getName()
-        # trim the ".nc" off the end
-        file_path = file_path.replace(".nc", "")
-        # get just the filename, stripped of ".nc"
-        file_name = os.path.basename(file_path).replace(".nc", "")
+        # trim the ".nc" or ".nca" off the end
+        if ".nca" in file_path: # note order is important as nca contains nc
+            sf = ".nca"
+        elif ".nc" in file_path:
+            sf = ".nc"
+        else:
+            sf = ""
+        file_path = file_path.replace(sf, "")
+        # get just the filename, stripped of ".nc" or ".nca"
+        file_name = os.path.basename(file_path).replace(sf, "")
         # construct the base path of the subarray filenames
         base_filename = file_path + "/" + file_name
         # add the group if it is not root

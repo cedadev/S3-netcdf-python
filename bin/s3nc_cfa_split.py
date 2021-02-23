@@ -35,7 +35,20 @@ def copy_vars(nc_object, s3_object, subarray_size, subarray_shape=[]):
             fill_value = None
         # create the variable - the createVariable method needs to distinguish
         # between whether the shape or size has been passed in
+        # Also, if the subarray_shape has been passed in then only attempt to
+        # do it for variables with the same number of dimensions as the subarray
+        # shape.
+        use_shape = False
         if subarray_shape!=[]:
+            shape_list = [int(x) for x in subarray_shape.strip("[]").split(",")]
+            shape_array = np.array(shape_list)
+            # check if shape_array.size is the same as the number of dims in the
+            # netCDF variable
+            if(shape_array.size == nc_var.ndim):
+                use_shape = True
+
+        if use_shape:
+            # subarray shape at this moment is a string, [a,b,c,d]
             s3_var = s3_object.createVariable(
                         # can only fill in endian from original dataset as
                         # other initialisation variables are not stored in the
@@ -45,7 +58,7 @@ def copy_vars(nc_object, s3_object, subarray_size, subarray_shape=[]):
                         endian=nc_var.endian(),
                         fill_value=fill_value,
                         dimensions=nc_var.dimensions,
-                        max_subarray_shape=subarray_shape)
+                        subarray_shape=shape_array)
         else:
             s3_var = s3_object.createVariable(
                         # can only fill in endian from original dataset as
@@ -209,7 +222,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--subarray_shape", action="store", default=[],
-        metavar="<subarray shape>",
+        metavar="<subarray_shape>",
         help=(
             "Shape for the subarray files (optional).  Without this argument, "
             "the shape will be automatically determined."
