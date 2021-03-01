@@ -25,26 +25,26 @@ from S3netCDF4.CFA._CFASplitter import CFASplitter
 cdef class CFADataset:
     """
        Class containing details of a CFADataset (master array)
-       +----------------------------------------------------------------------+
-       | CFADataset                                                           |
-       +----------------------------------------------------------------------+
-       | name               string                                            |
-       | format             string                                            |
-       | cfa_version        string                                            |
-       | cfa_groups         dict<CFAGroups>                                   |
-       | metadata           dict<mixed>                                       |
-       +----------------------------------------------------------------------+
-       | CFAGroup           createGroup(string grp_name,                      |
-       |                                dict metadata)                        |
-       | CFAGroup           getGroup(string grp_name)                         |
-       | bool               renameGroup(string old_name,                      |
-       |                                string new_name)                      |
-       | list<basestring>   getGroups()                                       |
-       | string             getName()                                         |
-       | string             getFormat()                                       |
-       | basestring         getCFAVersion()                                   |
-       | dict<mixed>        getMetadata()                                     |
-       +----------------------------------------------------------------------+
+       +-----------------------------------------------------------------------+
+       | CFADataset                                                            |
+       +-----------------------------------------------------------------------+
+       | name                       string                                     |
+       | format                     string                                     |
+       | cfa_version                string                                     |
+       | cfa_groups                 dict<CFAGroups>                            |
+       | metadata                   dict<mixed>                                |
+       +-----------------------------------------------------------------------+
+       | CFAGroup                   createGroup(string grp_name,               |
+       |                                        dict metadata)                 |
+       | CFAGroup                   getGroup(string grp_name)                  |
+       | bool                       renameGroup(string old_name,               |
+       |                                        string new_name)               |
+       | list<basestring>           getGroups()                                |
+       | string                     getName()                                  |
+       | string                     getFormat()                                |
+       | basestring                 getCFAVersion()                            |
+       | dict<mixed>                getMetadata()                              |
+       +-----------------------------------------------------------------------+
     """
 
     cdef basestring name
@@ -111,11 +111,15 @@ cdef class CFADataset:
 
             Returns:
                 CFAGroup: the instance of the group with name of grp_name
-                
+
             Exceptions:
 
         """
         return self.getGroup(grp_name)
+
+    def __setitem__(CFADataset self, basestring grp_name, value):
+        """Overload the setitem to return an error"""
+        raise CFAError("Not permitted.")
 
     def __getattr__(CFADataset self, basestring name):
         """Overload the getattribute to return a group"""
@@ -175,10 +179,10 @@ cdef class CFADataset:
                 "Could not getGroup {}, group does not exist."
             ).format(grp_name))
 
-    cpdef bint renameGroup(CFADataset self,
-                           basestring old_name,
-                           basestring new_name
-                          ):
+    cpdef object renameGroup(CFADataset self,
+                             basestring old_name,
+                             basestring new_name
+                            ):
         """Rename a group from old_name to new_name.
 
         Args:
@@ -192,7 +196,7 @@ cdef class CFADataset:
         try:
             # reasssign the key, then rename in CFAGroup datastructure
             self.cfa_groups[new_name] = self.cfa_groups.pop(old_name)
-            self.cfa_groups[new_name].grp_name = new_name
+            self.cfa_groups[new_name].setName(new_name)
         except KeyError as e:
             raise CFAGroupError((
                 "Could not renameGroup {}, group does not exist."
@@ -240,39 +244,40 @@ cdef class CFADataset:
 cdef class CFAGroup:
     """
         Class containing details of a CFAGroup (master array grouping)
-        +------------------------------------------------+
-        | CFAGroup                                       |
-        +------------------------------------------------+
-        | CFADataset      dataset                        |
-        | cfa_dims        dict<CFADim>                   |
-        | grp_name        string                         |
-        | metadata        dict<mixed>                    |
-        | cfa_vars        dict<CFAVariable>              |
-        +------------------------------------------------+
-        | CFAVariable createVariable(string var_name,    |
-        |         np.dtype nc_dtype,                     |
-        |         list<string> dim_names=[],             |
-        |         np.ndarray subarray_shape=np.array([]),|
-        |         int max_subarray_size=0,               |
-        |         dict<mixed> metadata={})               |
-        | CFAVariable getVariable(string var_name)       |
-        | list<basestring>    getVariables()             |
-        | bool        renameVariable(string old_name,    |
-        |                            string new_name)    |
-        |                                                |
-        | CFADim      createDimension(string dim_name,   |
-        |                           int dim_len,         |
-        |                           dict<mixed>metadata, |
-        |                           <type> type)         |
-        | CFADim       getDimension(string dim_name)     |
-        | iterator<CFADim> getDimensions()               |
-        | bool        renameDimension(string old_name,   |
-        |                             string new_name)   |
-        |                                                |
-        | string      getName()                          |
-        | dict<mixed> getMetadata()                      |
-        | CFADataset  getDataset()                       |
-        +------------------------------------------------+
+        +----------------------------------------------------------------------+
+        | CFAGroup                                                             |
+        +----------------------------------------------------------------------+
+        | CFADataset      dataset                                              |
+        | cfa_dims        dict<CFADim>                                         |
+        | grp_name        string                                               |
+        | metadata        dict<mixed>                                          |
+        | cfa_vars        dict<CFAVariable>                                    |
+        +----------------------------------------------------------------------+
+        | CFAVariable         createVariable(string var_name,                  |
+        |                            np.dtype nc_dtype,                        |
+        |                            list<string> dim_names=[],                |
+        |                            np.ndarray subarray_shape=np.array([]),   |
+        |                            int max_subarray_size=0,                  |
+        |                            dict<mixed> metadata={})                  |
+        | CFAVariable         getVariable(string var_name)                     |
+        | list<basestring>    getVariables()                                   |
+        | bool                renameVariable(string old_name,                  |
+        |                                    string new_name)                  |
+        |                                                                      |
+        | CFADim              createDimension(string dim_name,                 |
+        |                                     int dim_len,                     |
+        |                                     dict<mixed>metadata,             |
+        |                                     <type> type)                     |
+        | CFADim              getDimension(string dim_name)                    |
+        | iterator<CFADim>    getDimensions()                                  |
+        | bool                renameDimension(string old_name,                 |
+        |                                     string new_name)                 |
+        |                                                                      |
+        | string              getName()                                        |
+        | None                setName(string)                                  |
+        | dict<mixed>         getMetadata()                                    |
+        | CFADataset          getDataset()                                     |
+        +----------------------------------------------------------------------+
     """
 
     cdef basestring grp_name
@@ -433,13 +438,13 @@ cdef class CFAGroup:
                 )
             else:
                 # check the size of the specified subarray
-                if len(subarray_shape) != len(dim_names):
+                if subarray_shape.size != len(dim_names):
                     raise CFASubArrayError(
                         "Number of dimensions in subarray_shape does not match"
                         " those in shape."
                     )
                 # check each dimension is not longer than that in array
-                for i in range(0, len(subarray_shape)):
+                for i in range(0, subarray_shape.size):
                     if subarray_shape[i] > self.cfa_dims[dim_names[i]].getLen():
                         raise CFASubArrayError(
                             "Dimension in desired sub_array is larger than"
@@ -515,10 +520,10 @@ cdef class CFAGroup:
         """Get the name of all the variables for this Group."""
         return [k for k in self.cfa_vars.keys()]
 
-    cpdef bint renameVariable(CFAGroup self,
-                              basestring old_name,
-                              basestring new_name
-                             ):
+    cpdef object renameVariable(CFAGroup self,
+                                basestring old_name,
+                                basestring new_name
+                               ):
         """Rename a variable from old_name to new_name.
 
         Args:
@@ -563,7 +568,7 @@ cdef class CFAGroup:
         return self.cfa_dims[dim_name]
 
     cpdef CFADimension getDimension(CFAGroup self, basestring dim_name):
-        """Get a CFA diimension by name."""
+        """Get a CFA dimension by name."""
         try:
             return self.cfa_dims[dim_name]
         except KeyError as e:
@@ -575,10 +580,10 @@ cdef class CFAGroup:
         """Get the name of all the dimensions for this Group."""
         return [k for k in self.cfa_dims.keys()]
 
-    cpdef bint renameDimension(CFAGroup self,
-                               basestring old_name,
-                               basestring new_name
-                              ):
+    cpdef object renameDimension(CFAGroup self,
+                                 basestring old_name,
+                                 basestring new_name
+                                ):
         """Rename a dimension from old_name to new_name.
 
         Args:
@@ -607,6 +612,10 @@ cdef class CFAGroup:
         """Get the name of the group."""
         return self.grp_name
 
+    cpdef setName(CFAGroup self, basestring new_name):
+        """(Re)set the name of the group."""
+        self.grp_name = new_name
+
     cpdef CFADataset getDataset(CFAGroup self):
         """Get the CFADataset that the group belongs to."""
         return self.dataset
@@ -619,44 +628,44 @@ CFAPartition = namedtuple("CFAPartition",
 cdef class CFAVariable:
     """
         Class containing definition of a CFA Variable, containing CFASubarrays.
-        +------------------------------------------------+
-        | CFAVariable                                    |
-        +------------------------------------------------+
-        | CFAGroup       group                           |
-        | var_name       string                          |
-        | nc_dtype       np.dtype                        |
-        | metadata       dict<mixed>                     |
-        | cf_role        string                          |
-        | cfa_dimensions list<string>                    |
-        | pmdimensions   list<string>                    |
-        | pmshape        array<int>                      |
-        | base           string                          |
-        | nc_partition_group  object                     |
-        | subarry_shape  np.ndarray                      |
-        +------------------------------------------------+
-        | string         getName()                       |
-        | CFAGroup       getGroup()                      |
-        | np.dtype       getType()                       |
-        | dict<mixed>    getMetadata()                   |
-        | list<string>   getDimensions()                 |
-        | string         getRole()                       |
-        | np.ndarray     shape()                         |
-        | string         getBaseFilename()               |
-        | np.ndarray     getPartitionMatrixShape()       |
-        | list           getPartitionMatrixDimensions()  |
-        | CFAPartition   getPartition(array<int> index)  |
-        | CFAPartition   getPartitionValues(key="location")|
-        | void           writePartition(CFAPartition)    |
-        | void           writeInitialPartitionInfo()     |
-        | void           createNCPartition()             |
-        | bool           parse(dict cfa_metadata)        |
-        | dict<mixed>    dump()                          |
-        | void           load()                          |
-        +------------------------------------------------+
-        | __init__                                       |
-        | __repr__                                       |
-        | __getitem__                                    |
-        +------------------------------------------------+
+        +----------------------------------------------------------------------+
+        | CFAVariable                                                          |
+        +----------------------------------------------------------------------+
+        | CFAGroup            group                                            |
+        | var_name            string                                           |
+        | nc_dtype            np.dtype                                         |
+        | metadata            dict<mixed>                                      |
+        | cf_role             string                                           |
+        | cfa_dimensions      list<string>                                     |
+        | pmdimensions        list<string>                                     |
+        | pmshape             array<int>                                       |
+        | base                string                                           |
+        | nc_partition_group  object                                           |
+        | subarry_shape       np.ndarray                                       |
+        +----------------------------------------------------------------------+
+        | string              getName()                                        |
+        | CFAGroup            getGroup()                                       |
+        | np.dtype            getType()                                        |
+        | dict<mixed>         getMetadata()                                    |
+        | list<string>        getDimensions()                                  |
+        | string              getRole()                                        |
+        | np.ndarray          shape()                                          |
+        | string              getBaseFilename()                                |
+        | np.ndarray          getPartitionMatrixShape()                        |
+        | list                getPartitionMatrixDimensions()                   |
+        | CFAPartition        getPartition(array<int> index)                   |
+        | CFAPartition        getPartitionValues(key="location")               |
+        | void                writePartition(CFAPartition)                     |
+        | void                writeInitialPartitionInfo()                      |
+        | void                createNCPartition()                              |
+        | bool                parse(dict cfa_metadata)                         |
+        | dict<mixed>         dump()                                           |
+        | void                load()                                           |
+        +----------------------------------------------------------------------+
+        | __init__                                                             |
+        | __repr__                                                             |
+        | __getitem__                                                          |
+        +----------------------------------------------------------------------+
     """
 
     cdef public basestring var_name
@@ -810,7 +819,7 @@ cdef class CFAVariable:
                 # 3. l0 <= s1 and l1 >= s1 (this is the end slice {es})
                 ss = location[d,0] <= slices[d,0] and slices[d,0] < location[d,1]
                 ms = location[d,0] >= slices[d,0] and location[d,1] <= slices[d,1]
-                es = location[d,0] <= slices[d,1] and location[d,1] >= slices[d,1]
+                es = location[d,0] < slices[d,1] and slices[d,1] <= location[d,1]
 
                 # logical or these for whether the slice is contained in this
                 # dimension
@@ -906,10 +915,16 @@ cdef class CFAVariable:
         """Create the file name path that is common between all subarray files"""
         # create the base filename
         file_path = self.getGroup().getDataset().getName()
-        # trim the ".nc" off the end
-        file_path = file_path.replace(".nc", "")
-        # get just the filename, stripped of ".nc"
-        file_name = os.path.basename(file_path).replace(".nc", "")
+        # trim the ".nc" or ".nca" off the end
+        if ".nca" in file_path: # note order is important as nca contains nc
+            sf = ".nca"
+        elif ".nc" in file_path:
+            sf = ".nc"
+        else:
+            sf = ""
+        file_path = file_path.replace(sf, "")
+        # get just the filename, stripped of ".nc" or ".nca"
+        file_name = os.path.basename(file_path).replace(sf, "")
         # construct the base path of the subarray filenames
         base_filename = file_path + "/" + file_name
         # add the group if it is not root
@@ -1318,23 +1333,23 @@ cdef class CFAVariable:
 cdef class CFADimension:
     """
         Class containing definition of a CFA Dimension.
-        +------------------------------------------------+
-        | CFADimension                                   |
-        +------------------------------------------------+
-        | dim_name         string                        |
-        | dim_len          int                           |
-        | metadata         dict<mixed>                   |
-        | axis_type        string                        |
-        | np.dtype         nc_dtype                      |
-        +------------------------------------------------+
-        | dict<mixed>      dump()                        |
-        | string           getName()                     |
-        | dict<mixed>      getMetadata()                 |
-        | int              getLen()                      |
-        | string           getAxisType()                 |
-        | void             setType(np.dtype)             |
-        | np.dtype         getType()                     |
-        +------------------------------------------------+
+        +----------------------------------------------------------------------+
+        | CFADimension                                                         |
+        +----------------------------------------------------------------------+
+        | dim_name         string                                              |
+        | dim_len          int                                                 |
+        | metadata         dict<mixed>                                         |
+        | axis_type        string                                              |
+        | np.dtype         nc_dtype                                            |
+        +----------------------------------------------------------------------+
+        | dict<mixed>      dump()                                              |
+        | string           getName()                                           |
+        | dict<mixed>      getMetadata()                                       |
+        | int              getLen()                                            |
+        | string           getAxisType()                                       |
+        | void             setType(np.dtype)                                   |
+        | np.dtype         getType()                                           |
+        +----------------------------------------------------------------------+
     """
 
     cdef basestring dim_name
