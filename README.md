@@ -28,12 +28,12 @@ S3 HTTP interface, to disk or to OPeNDAP.
 S3-netCDF4 requires Python 3.7 or later.
 
 It also requires the following packages:
-* numpy==1.18.1
-* Cython==0.29.15
-* netCDF4==1.5.3
-* botocore==1.15.15
-* aiobotocore==0.12.0
-* psutil==5.7.0
+* numpy==1.19.4
+* Cython==0.29.21
+* netCDF4==1.5.5.1
+* botocore==1.19.20
+* aiobotocore==1.1.2
+* psutil==5.7.3
 
 (These are fulfilled by a pip installation, so it is not necessary to install
 them if you are installing the package via pip, as below.)
