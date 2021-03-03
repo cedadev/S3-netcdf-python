@@ -1,7 +1,7 @@
 #!python
 #cython: language_level=3
 
-__copyright__ = "(C) 2020 Science and Technology Facilities Council"
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
 __license__ = "BSD - see LICENSE file in top-level directory"
 __authors__ = "Neil Massey"
 
@@ -248,9 +248,9 @@ cdef class CFAGroup:
         | CFAGroup                                                             |
         +----------------------------------------------------------------------+
         | CFADataset      dataset                                              |
-        | cfa_dims        dict<CFADim>                                         |
         | grp_name        string                                               |
         | metadata        dict<mixed>                                          |
+        | cfa_dims        dict<CFADimension>                                   |
         | cfa_vars        dict<CFAVariable>                                    |
         +----------------------------------------------------------------------+
         | CFAVariable         createVariable(string var_name,                  |
@@ -641,7 +641,7 @@ cdef class CFAVariable:
         | pmshape             array<int>                                       |
         | base                string                                           |
         | nc_partition_group  object                                           |
-        | subarry_shape       np.ndarray                                       |
+        | subarray_shape      np.ndarray                                       |
         +----------------------------------------------------------------------+
         | string              getName()                                        |
         | CFAGroup            getGroup()                                       |
@@ -1222,8 +1222,8 @@ cdef class CFAVariable:
                 self.metadata[md_key] = cfa_metadata[md_key]
 
     cpdef dict dump(CFAVariable self):
-        """Return the a dictionary representation of the CFAVariable so it can be
-           added to the metadata for the variable later.
+        """Return the a dictionary representation of the CFAVariable so it can
+           be added to the metadata for the variable later.
            Returns:
                dict: the JSON representation of the CFAVariable
         """

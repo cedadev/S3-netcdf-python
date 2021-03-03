@@ -1,5 +1,9 @@
 #! /usr/bin/env python
 
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """Program to aggregate netCDF-CFA files from disk or s3.
 This program will produce a master array file, containing references to the
 files that have been aggregated.

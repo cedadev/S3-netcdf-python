@@ -1,5 +1,9 @@
 #! /usr/bin/env python
 
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """Program to split a netCDF file into a netCDF-CFA master file and a number
 of netCDF sub array files.
 """

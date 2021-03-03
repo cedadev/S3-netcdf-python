@@ -1,5 +1,9 @@
 #! /usr/bin/env python
 
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 """Program to return information about a netCDF-CFA file from disk or S3.
 Modelled after ncdump and cdo info.
 """

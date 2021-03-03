@@ -1,3 +1,7 @@
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 import os
 from setuptools import Extension, setup
 from Cython.Build import cythonize
@@ -104,7 +108,7 @@ extensions = [
 
 setup(
     name='S3netCDF4',
-    version='2.0.11',
+    version='2.1-rc1',
     packages=['S3netCDF4'],
     install_requires=[
       'numpy>=1.19.0',

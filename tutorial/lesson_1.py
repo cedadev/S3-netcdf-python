@@ -1,3 +1,7 @@
+__copyright__ = "(C) 2019-2021 Science and Technology Facilities Council"
+__license__ = "BSD - see LICENSE file in top-level directory"
+__authors__ = "Neil Massey"
+
 # s3-netCDF-python Tutorial 1
 # Purpose: Read a time series from a CMIP6 dataset
 # Author : Neil Massey

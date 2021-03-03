@@ -1,6 +1,15 @@
 S3netCDF-python
 ---------------
 
+Changes between v2.0.12 and v2.1-rc1
+------------------------------------
+1. Tidied LICENSE information
+
+Changes between v2.0.8 and v2.0.12
+----------------------------------
+1. Added a s3_nc_cfa_split.py program to split a large netCDF file into smaller netCDF subarray files and produce a CFA-netCDF master array file.
+2. Bugfixes to the splitter.
+
 Changes between v2.0.6 and v2.0.8
 ---------------------------------
 1. Bug fix for indexing.
