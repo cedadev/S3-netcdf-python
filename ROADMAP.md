@@ -12,4 +12,5 @@ i.e. the master array file is an xarray JSON attributes file, and provide
 support for Zarr with a CFA master-array file, i.e. the chunks are Zarr but the
 master-array file is CFA-netCDF.
 8. Upgrade aiobotocore to latest.  v1.0+ has an API that breaks previous
-version.
+version. (completed in v2.0.5)
+9. Add Dask support for parallel workflows.
