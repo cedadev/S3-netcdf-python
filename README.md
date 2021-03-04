@@ -48,27 +48,58 @@ is recommended to install S3netCDF4 into a virtual environment, rather than
 using the system Python.  S3netCDF4 does not rely on any external servers,
 besides the storage systems, it is run entirely on the host machine.
 
-0. Users on the STFC/NERC JASMIN system will have to activate Python 3.7 by
-using the command:
+s3netCDF4 can be installed either from PyPi or directly from the GitHub repository.
 
-   `module load jaspy`
+### From PyPi
 
 1. Create a Python 3 virtual environment:
 
-  `python3 -m venv /path/to/venv`
+    `python3 -m venv /path/to/venv`
 
 2. Activate the virtual environment:
 
-  `source /path/to/venv/bin/activate`
+    `source /path/to/venv/bin/activate`
 
 3. Installing S3netCDF4 requires a version of `pip` > 10.0.  To install the
 latest version of pip into the virtual environment use the command:
 
-  `pip install --upgrade pip`
+    `pip install --upgrade pip`
+
+4. Install from PyPi:
+
+    `pip install S3netCDF4`
+
+5. Copy the configuration template file from `config/.s3nc.json.template` to
+    `~/.s3nc.json` and fill in the values for the variables.  See the section
+    [Configuration](#configuration).
+
+6. Run a test to ensure the package has installed correctly:
+
+    `python test/test_s3Dataset.py`
+
+### From GitHub    
+
+0. Users on the STFC/NERC JASMIN system will have to activate Python 3.7 by
+using the command:
+
+    `module load jaspy`
+
+1. Create a Python 3 virtual environment:
+
+    `python3 -m venv /path/to/venv`
+
+2. Activate the virtual environment:
+
+    `source /path/to/venv/bin/activate`
+
+3. Installing S3netCDF4 requires a version of `pip` > 10.0.  To install the
+latest version of pip into the virtual environment use the command:
+
+    `pip install --upgrade pip`
 
 4. Install the S3netCDF4 library, directly from the github repository:
 
-  `pip install -e git+https://github.com/cedadev/S3-netcdf-python.git#egg=S3netCDF4`
+    `pip install -e git+https://github.com/cedadev/S3-netcdf-python.git#egg=S3netCDF4`
 
 5. Copy the configuration template file from `config/.s3nc.json.template` to
 `~/.s3nc.json` and fill in the values for the variables.  See the section
@@ -76,7 +107,7 @@ latest version of pip into the virtual environment use the command:
 
 6. Run a test to ensure the package has installed correctly:
 
-  `python test/test_s3Dataset.py`
+    `python test/test_s3Dataset.py`
 
 7. Users on the STFC/NERC JASMIN system will have to repeat step 0 every time
 they wish to use S3netCDF4 via the virtual environment.

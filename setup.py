@@ -124,17 +124,21 @@ setup(
     license='my License',  # example license
     description='A library to facilitate the storage of netCDF files on ObjectStores in an efficient manner.',
     long_description=README,
+    long_description_content_type="text/markdown",
     url='http://www.ceda.ac.uk/',
     author='Neil Massey',
     author_email='neil.massey@stfc.ac.uk',
     classifiers=[
-        'Environment :: Library',
-        'Framework :: netCDF',
-        'Intended Audience :: Software Developers, Data Scientists',
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Science/Research',
         'License :: OSI Approved :: BSD License', # example license
+        'Topic :: Software Development :: Libraries :: Python Modules',
+        'Topic :: System :: Archiving :: Compression',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ]
 )
