@@ -299,7 +299,7 @@ class FileManager(object):
                 # might need to create the parent directory(ies)
                 if mode == "w":
                     dir_path = os.path.dirname(url)
-                    if not os.path.exists(dir_path):
+                    if dir_path and not os.path.exists(dir_path):
                         os.makedirs(dir_path)
                 # need to open in binary
                 if not "b" in mode:
