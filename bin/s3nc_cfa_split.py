@@ -126,10 +126,14 @@ def split_into_CFA(output_path, input_path,
     # get the output format for the new Dataset
     # if it's netCDF4 then the output is CFA4
     # if it's netCDF3 then the output is CFA3
+
     if nc_ds.file_format in ['NETCDF4', 'NETCDF4_CLASSIC']:
         s3_file_format = "CFA4"
     elif nc_ds.file_format == "NETCDF3_CLASSIC":
-        s3_file_format = "CFA3"
+        if cfa_version == "0.5":    # ensure compatibility with the default
+            s3_file_format = "CFA4"
+        else:
+            s3_file_format = "CFA3"
     else:
         raise CFAError("Cannot split file with format: {}".format(
                         nc_ds.file_format)
