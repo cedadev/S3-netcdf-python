@@ -24,6 +24,7 @@ def get_universal_times(nc_var, common_date):
         axis_dim_values = nc_var[:]
     return axis_dim_values
 
+
 def add_var_dims(in_object, out_object, axis, fname, common_date):
     """Add the variables and dimensions to the s3Dataset or s3Group"""
     # create dimension, get the axis dimension location
@@ -160,6 +161,7 @@ def add_var_dims(in_object, out_object, axis, fname, common_date):
                 in_var_attrs["units"] = common_date
             out_var.setncatts(in_var_attrs)
 
+
 def create_partitions_from_files(out_dataset, files, axis,
                                  cfa_version, common_date):
     """Create the CFA partitions from a list of files."""
@@ -191,6 +193,7 @@ def create_partitions_from_files(out_dataset, files, axis,
         add_var_dims(in_dataset, out_dataset, axis, fname, common_date)
         in_dataset.close()
 
+
 def sort_partition_matrix(out_var, axis):
     """Sort the partition matrix for a single variable."""
     # get the index of the axis that we are aggregating over
@@ -217,9 +220,15 @@ def sort_partition_matrix(out_var, axis):
             source_part.index[axis_dim_n] = i
             # add to the list
             new_parts.append(source_part)
+
         # now rewrite the partitions, and ensure their integrity - i.e. make
         # sure that the axis partitions are the right length
         for p in range(len(new_parts)):
+            # get the first new partition and the first location - this is the
+            # offset which we will need to subtract from the other locations
+            # in the loop as it changes in the loop
+            axis_offset = new_parts[0].location[axis_dim_n, 0]
+
             part = new_parts[p]
             if p > 0:
                 # align with previous partition
@@ -228,10 +237,13 @@ def sort_partition_matrix(out_var, axis):
             # make sure end of partition aligns with shape of array
             part.location[axis_dim_n,1] = (part.location[axis_dim_n,0] +
                 part.shape[axis_dim_n])
+            part.location[axis_dim_n,:] -= axis_offset
+            # subtract the offset
             out_var._cfa_var.writePartition(part)
 
     except ValueError:
         axis_dim_n = 0
+
 
 def sort_axis_variable(out_object, axis):
     # sort the axis variable and write back out to the netCDF object
@@ -240,6 +252,7 @@ def sort_axis_variable(out_object, axis):
         axis_dim_var[:] = np.sort(axis_dim_var[:])
     except KeyError:
         pass
+
 
 def sort_partition_matrices(out_dataset, axis):
     """Sort the partition matrices for all the variables.  Sort is based on the
@@ -264,6 +277,7 @@ def sort_partition_matrices(out_dataset, axis):
 
     # sort the axis variable in the dataset
     sort_axis_variable(out_dataset, axis)
+
 
 def get_file_list(path):
     """Get a list of files given the path.
