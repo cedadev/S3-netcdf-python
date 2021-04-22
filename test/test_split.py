@@ -90,3 +90,6 @@ class TestSplit(unittest.TestCase):
         self._split_and_aggregate("0.4", "0.5")
 
         self.assertTrue(nca_equivalence(self.ncafile1, self.ncafile2))
+
+if __name__ == '__main__':
+    unittest.main()
