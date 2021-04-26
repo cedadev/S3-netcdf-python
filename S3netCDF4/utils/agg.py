@@ -109,6 +109,9 @@ def add_var_dims(in_object, out_object, axis, fname, common_date):
                     axis_res = (axis_dim_values[-1] - axis_dim_values[0]) / len(axis_dim_values)
                 except IndexError:
                     axis_res = 1
+                # prevent divide by zero
+                if (axis_res == 0.0):
+                    axis_res = 1.0
                 # set the location for the aggregating axis dimension
                 location[axis_dim_n, 0] = int(axis_dim_values[0] / axis_res)
                 location[axis_dim_n, 1] = location[axis_dim_n, 0] + len(axis_dim_var)
