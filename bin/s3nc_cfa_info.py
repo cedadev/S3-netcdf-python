@@ -211,37 +211,37 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "-group", action="store", default="all",
+        "--group", action="store", default="all",
         metavar="<group>",
         help=(
             "Name of a group to print information about, or print all groups. "
-            "-group=all|<group_name>"
+            "--group=all|<group_name>"
         )
     )
 
     parser.add_argument(
-        "-variable", action="store", default="all",
+        "--variable", action="store", default="all",
         metavar="<variable>",
         help=(
             "Name of a variable to print information about, print all or no" "variables. "
-            "-variable=all|none|<variable_name>"
+            "--variable=all|none|<variable_name>"
         )
     )
 
     parser.add_argument(
-        "-partition", action = "store", default="none",
+        "--partition", action = "store", default="none",
         metavar="<partition>",
         help=(
             "Print the information about a partition. "
-            "-partition=all|none|<partition_index>"
+            "--partition=all|none|<partition_index>"
         )
     )
 
     parser.add_argument(
-        "-metadata", action = "store_true", default=False,
+        "--metadata", action = "store_true", default=False,
         help=(
             "Print the metadata for groups, dimensions and variables"
-            "-metadata"
+            "--metadata"
         )
     )
 

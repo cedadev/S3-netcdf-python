@@ -1238,9 +1238,14 @@ class s3Dataset(object):
 
         # create the file object, this controls access to the various
         # file backends that are supported
+        if mode == 'a': # allow an initial read on append to interpret the
+                        # netCDF file type
+            open_mode = 'r'
+        else:
+            open_mode = mode
         self._managed_object = self._file_manager.request_file(
                                     filename,
-                                    mode=mode,
+                                    mode=open_mode,
                                     lock=True
                                )
 
@@ -1297,8 +1302,8 @@ class s3Dataset(object):
                 self._file_manager.open_success(filename)
             # manage the interactions with the data_object
             self._managed_object.data_object = self._nc_dataset
-        # handle read-only mode
-        elif mode == 'r':
+        # handle read-only / append mode
+        elif mode == 'r' or mode == 'a':
             # check the file exists
             if (
             self._managed_object.open_state == OpenFileRecord.DOES_NOT_EXIST
@@ -1314,6 +1319,10 @@ class s3Dataset(object):
                 raise IOError("File: {} is not a netCDF file".format(filename))
                 # read the file in, or create it
             if self._managed_object.file_object.remote_system:
+                if mode == 'a':
+                    # append not supported for remote file systems
+                    raise APIException("Mode ''" + mode + "'' not supported "
+                                       "for remote storage system.")
                 # stream into memory
                 nc_bytes = self._managed_object.file_object.read()
                 # call the base constructor
@@ -1344,7 +1353,7 @@ class s3Dataset(object):
                 parser.read(self, filename)
         else:
             # no other modes are supported
-            raise APIException("Mode " + mode + " not supported.")
+            raise APIException("Mode ''" + mode + "'' not supported.")
 
     def __enter__(self):
         """Allow with s3Dataset statements."""

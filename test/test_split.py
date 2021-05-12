@@ -6,7 +6,7 @@ from S3netCDF4.utils.agg import aggregate_into_CFA
 from S3netCDF4.CFA._CFAClasses import CFADataset
 from S3netCDF4._s3netCDF4 import s3Dataset
 
-TESTFILE = "/Users/BNL28/Data/nc/ta_Amon_HadCM3_rcp45_r10i1p1_200601-203012.nc"
+TESTFILE = "/Users/dhk63261/Archive/cmip5/ta_Amon_HadCM3_rcp45_r10i1p1_203101-203512.nc"
 
 
 def nca_equivalence(ncfile1, ncfile2, variable='ta'):
@@ -30,6 +30,8 @@ def nca_equivalence(ncfile1, ncfile2, variable='ta'):
     # We don't do all data coz it would take a long time
     assert (xx == yy).all(), "Data in arrays does not match"
 
+    x.close()
+    y.close()
     # now check file headers
 
     raise NotImplementedError("This doesn't mean the test has failed, just the test code is not finished")
@@ -40,16 +42,16 @@ class TestSplit(unittest.TestCase):
     """ All the necessary splitter tests"""
 
     def setUp(self):
-        self.ncafile1 = '/tmp/things1.nca'
-        self.ncapath = '/tmp/things1/things1.ta.*'
-        self.ncafile2 = '/tmp/things2.nca'
+        self.ncafile1 = '/Users/dhk63261/Archive/things1.nca'
+        self.ncapath = '/Users/dhk63261/Archive/things1/things1.ta.*'
+        self.ncafile2 = '/Users/dhk63261/Archive/things2.nca'
 
     def _split_and_aggregate(self, cfa1, cfa2):
         # for now use real disk ...
         input = TESTFILE
         subarray_size = 50 * 1024 * 1024
         subarray_path = ""
-        subarray_shape = "[2, 17,  73, 96]"
+        subarray_shape = "[1, 17,  73, 96]"
 
         split_into_CFA(self.ncafile1, input,
                        subarray_path,
