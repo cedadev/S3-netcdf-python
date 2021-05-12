@@ -1577,9 +1577,9 @@ class s3Dataset(object):
             file_version = data[3]
             if file_version == 1:
                 file_type = 'NETCDF3_CLASSIC'
-            elif file_version == '2':
+            elif file_version == 2:
                 file_type = 'NETCDF3_64BIT_OFFSET'
-            elif file_version == '5':
+            elif file_version == 5:
                 file_type = 'NETCDF3_64BIT_DATA'
             else:
                 file_version = 1 # default to one if no version
